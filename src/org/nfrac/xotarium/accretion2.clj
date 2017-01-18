@@ -7,8 +7,9 @@
             [quil.core :as quil :include-macros true]
             [quil.middleware])
   (:import (org.bytedeco.javacpp
-            liquidfun$b2ContactFilter
-            liquidfun$b2Fixture
+            liquidfun$b2ContactListener
+            liquidfun$b2ParticleBodyContact
+            liquidfun$b2ParticleContact
             liquidfun$b2Body
             liquidfun$b2Transform
             liquidfun$b2ParticleSystem
@@ -26,8 +27,8 @@
 (def accum-hits (atom {}))
 
 (gen-class
- :name org.nfrac.liquidfun.testbed.tests.accretion2.WallFilter
- :extends org.bytedeco.javacpp.liquidfun$b2ContactFilter
+ :name org.nfrac.xotarium.accretion2.WallListener
+ :extends org.bytedeco.javacpp.liquidfun$b2ContactListener
  :state state
  :init init
  :prefix "impl-")
@@ -38,40 +39,43 @@
   (defn impl-init []
     [[] @state])
 
-  (defn wall-filter
-    [wall-pg ground]
-    (reset! state [wall-pg ground])
-    (org.nfrac.liquidfun.testbed.tests.accretion2.WallFilter.)))
+  (defn wall-listener
+    [wall-pg wall-body]
+    (reset! state [wall-pg wall-body])
+    (org.nfrac.xotarium.accretion2.WallListener.)))
 
-(defn impl-ShouldCollide-b2Fixture-b2ParticleSystem-int
-  [^org.nfrac.liquidfun.testbed.tests.accretion2.WallFilter this
-   ^liquidfun$b2Fixture fixture ^liquidfun$b2ParticleSystem ps i]
-  (let [[wall-pg ground] (.state this)
+(defn impl-BeginContact-b2ParticleSystem-b2ParticleBodyContact
+  [^org.nfrac.xotarium.accretion2.WallListener this
+   ^liquidfun$b2ParticleSystem ps ^liquidfun$b2ParticleBodyContact contact]
+  (let [i (.index contact)
+        [wall-pg wall-body] (.state this)
         wall-pg ^liquidfun$b2ParticleGroup wall-pg
-        ground ^liquidfun$b2Body ground]
+        wall-body ^liquidfun$b2Body wall-body]
     (when (and (not (.ContainsParticle wall-pg i))
-               (= (lf/body-of fixture) ground))
+               (= (.body contact) wall-body))
       (let [x (.GetParticlePositionX ps i)
             y (.GetParticlePositionY ps i)]
         (swap! accum-hits assoc i [x y]))))
   true)
 
-(defn impl-ShouldCollide-b2ParticleSystem-int-int
-  [^org.nfrac.liquidfun.testbed.tests.accretion2.WallFilter this
-   ^liquidfun$b2ParticleSystem ps ia ib]
-  (let [[wall-pg _] (.state this)
-        wall-pg ^liquidfun$b2ParticleGroup wall-pg]
-    (let [a-wall? (.ContainsParticle wall-pg ia)
-          b-wall? (.ContainsParticle wall-pg ib)
-          [walli gasi] (cond
-                         (and a-wall? b-wall?) nil
-                         a-wall? [ia ib]
-                         b-wall? [ib ia]
-                         :else nil)]
-      (when gasi
-        (let [x (.GetParticlePositionX ps gasi)
-              y (.GetParticlePositionY ps gasi)]
-          (swap! accum-hits assoc gasi [x y])))))
+(defn impl-BeginContact-b2ParticleSystem-b2ParticleContact
+  [^org.nfrac.xotarium.accretion2.WallListener this
+   ^liquidfun$b2ParticleSystem ps ^liquidfun$b2ParticleContact contact]
+  (let [ia (.GetIndexA contact)
+        ib (.GetIndexB contact)
+        [wall-pg _] (.state this)
+        wall-pg ^liquidfun$b2ParticleGroup wall-pg
+        a-wall? (.ContainsParticle wall-pg ia)
+        b-wall? (.ContainsParticle wall-pg ib)
+        [walli gasi] (cond
+                       (and a-wall? b-wall?) nil
+                       a-wall? [ia ib]
+                       b-wall? [ib ia]
+                       :else nil)]
+    (when gasi
+      (let [x (.GetParticlePositionX ps gasi)
+            y (.GetParticlePositionY ps gasi)]
+        (swap! accum-hits assoc gasi [x y]))))
   true)
 
 (defn sign [x] (if (neg? x) -1 1))
@@ -95,7 +99,7 @@
                               :destroy-by-age false})
         gas-pg (lf/particle-group!
                 ps
-                {:flags #{:water :particle-contact-filter :fixture-contact-filter}
+                {:flags #{:water :particle-contact-listener :fixture-contact-listener}
                  :group-flags #{:can-be-empty}
                  :stride (* 0.75 p-radius 2.0)
                  :color [255 128 128 128]
@@ -103,17 +107,17 @@
                                 [0 0])})
         wall-pg (lf/particle-group!
                  ps
-                 {:flags #{:wall :barrier :particle-contact-filter}
+                 {:flags #{:wall :barrier :particle-contact-listener}
                   :group-flags #{:can-be-empty}
                   :color [255 255 255 255]})
-        de-filter (.m_contactFilter (.GetContactManager world))
-        filt (wall-filter wall-pg ground)
-        pdef (lf/particle-def {:flags #{:wall :barrier :particle-contact-filter}
+        old-listener (.m_contactListener (.GetContactManager world))
+        lstnr (wall-listener wall-pg ground)
+        pdef (lf/particle-def {:flags #{:wall :barrier :particle-contact-listener}
                                :color [255 255 255 255]
                                :group wall-pg})
         its (.CalculateReasonableParticleIterations world (/ 1 60.0))]
     (println "reasonable particle iterations:" its)
-    (.SetContactFilter world filt)
+    (.SetContactListener world lstnr)
     ;; clear out the center of gas as particles can end up fixed there
     (.DestroyParticlesInShape ps (lf/box (* p-radius 3) (* p-radius 3))
                               (doto (liquidfun$b2Transform.) (.SetIdentity)))
@@ -127,9 +131,9 @@
                {:shape (lf/edge [x0 y0] [x1 y1])})))
     (assoc bed/initial-state
       :world world
-      :contact-filter filt
-      ::filtering? true
-      ::de-filter de-filter
+      :contact-listener lstnr
+      ::listenering? true
+      ::old-listener old-listener
       :settings {:wall-pg wall-pg
                  :gas-pg gas-pg
                  :pdef pdef
@@ -148,7 +152,7 @@
         pdef ^liquidfun$b2ParticleDef (:pdef settings)
         v2tmp (lf/vec2 0 0)
         gas-i (.GetBufferIndex gas-pg)]
-    (when (and circ? (::filtering? state))
+    (when (and circ? (::listenering? state))
       (dotimes [j (.GetParticleCount gas-pg)]
         (let [i (+ gas-i j)
               x (.GetParticlePositionX ps i)
@@ -169,16 +173,16 @@
         (swap! accum-hits empty)
         (if @gas-done?
           ;; turn off accretion listener
-          (let [de-filt (::de-filter state)]
-            (.SetContactFilter (:world state) de-filt)
-            (assoc state :contact-filter de-filt
-                   ::filtering? false))
+          (let [lstnr (::old-listener state)]
+            (.SetContactListener (:world state) lstnr)
+            (assoc state :contact-listener lstnr
+                   ::listenering? false))
           state)))))
 
 (defn step
   [state]
   (cond-> (bed/world-step state)
-          (::filtering? state) (post-step)))
+          (::listenering? state) (post-step)))
       ;(bed/record-snapshot true)))
 
 (defn draw
