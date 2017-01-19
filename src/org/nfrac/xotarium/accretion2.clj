@@ -12,17 +12,28 @@
             liquidfun$b2ParticleContact
             liquidfun$b2Body
             liquidfun$b2Transform
+            liquidfun$b2Vec2
             liquidfun$b2ParticleSystem
             liquidfun$b2ParticleGroup
             liquidfun$b2ParticleDef
             liquidfun$b2QueryCallback)))
 
-(def p-radius 0.025)
+(def p-radius 0.030)
 (def cave-width 5.0)
 (def cave-height 5.0)
 (def cave-hw (* cave-width 0.5))
 (def min-group-size 5)
-(def circ-force 0.005)
+(def flow-force 0.005)
+(def fix-radius (* p-radius 4))
+(def flow-types #{:spin-ccw :spin-cw :down :up :out})
+
+(def wall-points (atom #{}))
+
+(defn record-wall-point! [x y]
+  (swap! wall-points conj [(int (/ x fix-radius)) (int (/ y fix-radius))]))
+
+(defn wall-point? [x y]
+  (contains? @wall-points [(int (/ x fix-radius)) (int (/ y fix-radius))]))
 
 (def accum-hits (atom {}))
 
@@ -55,7 +66,8 @@
                (= (.body contact) wall-body))
       (let [x (.GetParticlePositionX ps i)
             y (.GetParticlePositionY ps i)]
-        (swap! accum-hits assoc i [x y]))))
+        (swap! accum-hits assoc i [x y])
+        (record-wall-point! x y))))
   true)
 
 (defn impl-BeginContact-b2ParticleSystem-b2ParticleContact
@@ -92,19 +104,18 @@
                                              [hw (- hh)]])})
         ps (particle-system! world
                              {:radius p-radius
-                              :pressure-strength 1.0
-                              :damping-strength 1.0
+                              :pressure-strength 0.05
+                              :elastic-strength 0.15
+                              :damping-strength 0.5
                               :gravity-scale 0.0
-                              ;:strict-contact-check true
+                              :strict-contact-check true
                               :destroy-by-age false})
         gas-pg (lf/particle-group!
                 ps
-                {:flags #{:water :particle-contact-listener :fixture-contact-listener}
-                 :group-flags #{:can-be-empty}
-                 :stride (* 0.75 p-radius 2.0)
+                {:flags #{:water :fixture-contact-listener}
+                 :stride (* 1.0 p-radius 2.0)
                  :color [255 128 128 128]
-                 :shape (lf/box (* hw 0.25) (* hh 0.25)
-                                [0 0])})
+                 :shape (lf/circle (* hw 0.3))})
         wall-pg (lf/particle-group!
                  ps
                  {:flags #{:wall :barrier :particle-contact-listener}
@@ -121,68 +132,105 @@
     ;; clear out the center of gas as particles can end up fixed there
     (.DestroyParticlesInShape ps (lf/box (* p-radius 3) (* p-radius 3))
                               (doto (liquidfun$b2Transform.) (.SetIdentity)))
-    ;; add some random edges to disturb the gas flow
+    ;; add some random shapes to accrete on
     (doseq [[sx sy] [[1 1] [1 -1] [-1 1] [-1 -1]]]
       (let [x0 (* (rand-in (* 0.25 hw) hw) sx)
             x1 (* (rand-in (* 0.25 hw) hw) sx)
             y0 (* (rand-in (* 0.25 hh) hh) sy)
-            y1 (* (rand-in (* 0.25 hh) hh) sy)]
+            y1 (* (rand-in (* 0.25 hh) hh) sy)
+            [ang mag] ((juxt v2d/v-angle v2d/v-mag)
+                       (v2d/v-sub [x1 y1] [x0 y0]))]
         (lf/fixture! ground
-               {:shape (lf/edge [x0 y0] [x1 y1])})))
-    (assoc bed/initial-state
-      :world world
-      :contact-listener lstnr
-      ::listenering? true
-      ::old-listener old-listener
-      :settings {:wall-pg wall-pg
-                 :gas-pg gas-pg
-                 :pdef pdef
-                 :circ? true}
-      :particle-system ps
-      :particle-iterations its
-      :dt-secs (/ 1 60.0)
-      :camera (bed/map->Camera {:width 6 :height 6 :center [0 0]}))))
+               {:shape (lf/rod [x0 y0] ang mag (* 4 p-radius))})))
+    ;; add some more random shapes to disturb the gas flow
+    (let [scaffolding (lf/body! world {:type :static})]
+      (doseq [[sx sy] [[1 1] [1 -1] [-1 1] [-1 -1]]]
+        (let [x0 (* (rand-in (* 0.01 hw) (* 0.9 hw)) sx)
+              x1 (* (rand-in (* 0.01 hw) (* 0.9 hw)) sx)
+              y0 (* (rand-in (* 0.01 hh) (* 0.9 hh)) sy)
+              y1 (* (rand-in (* 0.01 hh) (* 0.9 hh)) sy)]
+          (lf/fixture! scaffolding
+            {:shape (if (and (> (v2d/v-mag [x0 y0]) (* 0.35 hw))
+                             (> (rand) 0.3))
+                      (lf/circle 0.25 [x0 y0])
+                      (lf/edge [x0 y0] [x1 y1]))})))
+      (assoc bed/initial-state
+       :world world
+       :contact-listener lstnr
+       ::has-gas? true
+       ::old-listener old-listener
+       ::scaffolding scaffolding
+       :settings {:wall-pg wall-pg
+                  :gas-pg gas-pg
+                  :pdef pdef
+                  :flow-type (rand-nth (seq flow-types))}
+       :particle-system ps
+       :particle-iterations its
+       :dt-secs (/ 1 60.0)
+       :camera (bed/map->Camera {:width 6 :height 6 :center [0 0]})))))
 
-(defn post-step
+(defn set-flow-force
+  [flow-type ^double xz ^double yz ^liquidfun$b2Vec2 v2tmp]
+  (case flow-type
+     :spin-ccw
+     (.Set v2tmp (* flow-force -2.0 yz)
+                 (* flow-force 2.0 xz))
+     :spin-cw
+     (.Set v2tmp (* flow-force 2.0 yz)
+                 (* flow-force -2.0 xz))
+     :down
+     (.Set v2tmp 0.0 (- flow-force))
+     :up
+     (.Set v2tmp 0.0 flow-force)
+     :out
+     (.Set v2tmp (* flow-force (sign xz))
+                 (* flow-force (sign yz)))))
+
+(defn end-gas
+  [state]
+  (let [gas-pg ^liquidfun$b2ParticleGroup (:gas-pg (:settings state))]
+    (.DestroyParticles gas-pg)
+    (lf/destroy-body! (::scaffolding state))
+    ;; turn off accretion listener
+    (let [lstnr (::old-listener state)]
+      (.SetContactListener (:world state) lstnr)
+      (assoc state ;:contact-listener lstnr
+             ::has-gas? false))))
+
+(defn gas-work
   [state]
   (let [dt (:dt-secs state)
         ps ^liquidfun$b2ParticleSystem (:particle-system state)
-        {:keys [wall-pg gas-pg circ?] :as settings} (:settings state)
+        {:keys [wall-pg gas-pg flow-type] :as settings} (:settings state)
         gas-pg ^liquidfun$b2ParticleGroup gas-pg
-        pdef ^liquidfun$b2ParticleDef (:pdef settings)
-        v2tmp (lf/vec2 0 0)
-        gas-i (.GetBufferIndex gas-pg)]
-    (when (and circ? (::listenering? state))
+        pdef ^liquidfun$b2ParticleDef (:pdef settings)]
+    (let [v2tmp (lf/vec2 0 0)
+          gas-i (.GetBufferIndex gas-pg)]
       (dotimes [j (.GetParticleCount gas-pg)]
         (let [i (+ gas-i j)
               x (.GetParticlePositionX ps i)
               y (.GetParticlePositionY ps i)
               xz (/ x cave-width)
               yz (/ y cave-height)]
-          (.Set v2tmp
-                (* circ-force -2.0 yz)
-                (* circ-force 2.0 xz))
-          (.ParticleApplyForce ps i v2tmp)))
-      (let [gas-done? (atom false)]
-        (doseq [[i [x y]] @accum-hits]
-          (when (== 1 (.GetParticleCount gas-pg))
-            (reset! gas-done? true))
-          (.DestroyParticle ps i)
-          (.SetPosition pdef x y)
-          (lf/particle! ps pdef))
-        (swap! accum-hits empty)
-        (if @gas-done?
-          ;; turn off accretion listener
-          (let [lstnr (::old-listener state)]
-            (.SetContactListener (:world state) lstnr)
-            (assoc state :contact-listener lstnr
-                   ::listenering? false))
-          state)))))
+          (set-flow-force flow-type xz yz v2tmp)
+          (.ParticleApplyForce ps i v2tmp))))
+    (let [gas-n (.GetParticleCount gas-pg)
+          hit-n (count @accum-hits)]
+      (doseq [[i [x y]] @accum-hits]
+        (.DestroyParticle ps i)
+        (.SetPosition pdef x y)
+        (lf/particle! ps pdef))
+      (swap! accum-hits empty)
+      (if (or (>= hit-n gas-n)
+              ;; sometimes gas particles get stuck
+              (> (:time state) 20.0))
+        (end-gas state)
+        state))))
 
 (defn step
   [state]
   (cond-> (bed/world-step state)
-          (::listenering? state) (post-step)))
+          (::has-gas? state) (gas-work)))
       ;(bed/record-snapshot true)))
 
 (defn draw
@@ -190,14 +238,15 @@
   (bed/draw state true)
   (let []
     (quil/fill 255)
-    (quil/text (str "Keys: (g) toggle gravity (d) damping (c) circulation\n"
-                    " (s) split (c) color (z) zap groups (p) print coords")
+    (quil/text (str "Keys: (g) toggle gravity (d) damping (b) ball"
+                    " (s) split (c) color (z) zap groups (e) elasticize")
                10 10)))
 
 (defn rand-color []
   [(int (rand-in 64 255))
    (int (rand-in 64 255))
-   (int (rand-in 64 255))])
+   (int (rand-in 64 255))
+   255])
 
 (defn particle-indices
   [^liquidfun$b2ParticleGroup pg]
@@ -212,24 +261,53 @@
         wall-pg ^liquidfun$b2ParticleGroup (get-in state [:settings :wall-pg])]
     (case (:key event)
       :s (do
-           (let [g wall-pg]
-             (.SetGroupFlags g 0)
-             (when (> (.GetParticleCount g) 1)
-               (.SplitParticleGroup ps g)))
+           (.SetGroupFlags wall-pg 0)
+           (.SplitParticleGroup ps wall-pg)
            state)
       :c (do
            (doseq [group (lf/particle-group-seq ps)]
              (let [colb (.GetColorBuffer ps)
-                   [r g b] (rand-color)]
+                   [r g b a] (rand-color)]
                (doseq [i (particle-indices group)]
                  (let [coli (.position colb (long i))]
-                   (.Set coli r g b 255)))))
+                   (.Set coli r g b a)))))
            state)
       :z (do
            (doseq [g (lf/particle-group-seq ps)]
              (when (< (.GetParticleCount g) min-group-size)
                (doseq [i (particle-indices g)]
                  (lf/destroy-particle! ps i))))
+           state)
+      :e (let [wall-flagval (lf/particle-flags #{:elastic :spring :wall})
+               ;; first pass, store all the group position data
+               group-coords (for [g (lf/particle-group-seq ps)]
+                              (for [i (particle-indices g)]
+                                [(.GetParticlePositionX ps i)
+                                 (.GetParticlePositionY ps i)]))
+               group-coords (mapv doall group-coords)]
+           ;; destroy all particles (empty groups will be cleaned up next step)
+           (doseq [g (lf/particle-group-seq ps)]
+             (.DestroyParticles g false))
+           ;; next pass, recreate all groups as elastic
+           (doseq [coords group-coords]
+             (let [pdata (lf/seq->v2arr coords)
+                   pg (lf/particle-group!
+                       ps
+                       {:flags #{:elastic :spring}
+                        :particle-count (count coords)
+                        :position-data pdata
+                        :color (rand-color)})]
+               (doseq [i (particle-indices pg)]
+                 (let [x (.GetParticlePositionX ps i)
+                       y (.GetParticlePositionY ps i)]
+                   (when (wall-point? x y)
+                     (.SetParticleFlags ps i wall-flagval))))))
+           state)
+      :b (do
+           (body! world {}
+                  {:shape (lf/circle 0.25)
+                   :restitution 0.5
+                   :density 1.0})
            state)
       :g (do
            (.SetGravityScale ps (if (== 1.0 (.GetGravityScale ps))
