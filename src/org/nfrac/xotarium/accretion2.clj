@@ -112,20 +112,21 @@
                               :destroy-by-age false})
         gas-pg (lf/particle-group!
                 ps
-                {:flags #{:water :fixture-contact-listener}
+                {:flags (lf/particle-flags #{:water :fixture-contact-listener})
                  :stride (* 1.0 p-radius 2.0)
                  :color [255 128 128 128]
                  :shape (lf/circle (* hw 0.3))})
         wall-pg (lf/particle-group!
                  ps
-                 {:flags #{:wall :barrier :particle-contact-listener}
-                  :group-flags #{:can-be-empty}
+                 {:flags (lf/particle-flags #{:wall :barrier :particle-contact-listener})
+                  :group-flags (lf/particle-group-flags #{:can-be-empty})
                   :color [255 255 255 255]})
         old-listener (.m_contactListener (.GetContactManager world))
         lstnr (wall-listener wall-pg ground)
-        pdef (lf/particle-def {:flags #{:wall :barrier :particle-contact-listener}
-                               :color [255 255 255 255]
-                               :group wall-pg})
+        pdef (lf/particle-def
+              {:flags (lf/particle-flags #{:wall :barrier :particle-contact-listener})
+               :color [255 255 255 255]
+               :group wall-pg})
         its (.CalculateReasonableParticleIterations world (/ 1 60.0))]
     (println "reasonable particle iterations:" its)
     (.SetContactListener world lstnr)
@@ -299,7 +300,7 @@
       (let [pdata (lf/seq->v2arr coords)
             pg (lf/particle-group!
                 ps
-                {:flags #{:elastic :spring}
+                {:flags (lf/particle-flags #{:elastic :spring})
                  :particle-count (count coords)
                  :position-data pdata
                  :color (rand-color)})]

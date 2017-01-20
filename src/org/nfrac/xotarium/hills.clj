@@ -45,7 +45,7 @@
                               :density 2.0
                               :pressure-strength 1.0
                               :destroy-by-age false})
-        pdef (lf/particle-def {:flags #{:water}
+        pdef (lf/particle-def {:flags (lf/particle-flags #{:water})
                                :color [255 255 255 255]})
         its (.CalculateReasonableParticleIterations world (/ 1 60.0))]
     (println "reasonable particle iterations:" its)

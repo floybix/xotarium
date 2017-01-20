@@ -63,23 +63,24 @@
                               :destroy-by-age false})
         gas-pg (lf/particle-group!
                 ps
-                {:flags #{:water}
+                {:flags (lf/particle-flags #{:water})
                  :stride (* 1.5 p-radius 2.0)
                  :color [255 128 128 128]
                  :shape (lf/box (* hw 0.6) (* cave-height 0.5 0.6)
                                 [0 (/ cave-height 2)])})
         wall-pg (lf/particle-group!
                  ps
-                 {:flags #{:wall :barrier :particle-contact-listener}
+                 {:flags (lf/particle-flags #{:wall :barrier :particle-contact-listener})
                   :color [255 255 255 255]
                   :shape (lf/edge-loop [[(- hw) 0]
                                         [(- hw) cave-height]
                                         [hw cave-height]
                                         [hw 0]])})
         lstnr (wall-listener wall-pg)
-        pdef (lf/particle-def {:flags #{:wall :barrier :particle-contact-listener}
-                               :color [255 255 255 255]
-                               :group wall-pg})
+        pdef (lf/particle-def
+              {:flags (lf/particle-flags #{:wall :barrier :particle-contact-listener})
+               :color [255 255 255 255]
+               :group wall-pg})
         its (.CalculateReasonableParticleIterations world (/ 1 60.0))]
     (println "reasonable particle iterations:" its)
     (.SetContactListener world lstnr)
