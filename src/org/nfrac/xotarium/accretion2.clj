@@ -253,58 +253,87 @@
   (let [i0 (.GetBufferIndex pg)]
     (range i0 (+ i0 (.GetParticleCount pg)))))
 
+(defn do-split-into-groups
+  [state]
+  (let [ps ^liquidfun$b2ParticleSystem (:particle-system state)
+        wall-pg ^liquidfun$b2ParticleGroup (get-in state [:settings :wall-pg])]
+    (.SetGroupFlags wall-pg 0)
+    (.SplitParticleGroup ps wall-pg)
+    state))
+
+(defn do-colorize
+  [state]
+  (let [ps ^liquidfun$b2ParticleSystem (:particle-system state)]
+    (doseq [group (lf/particle-group-seq ps)]
+      (let [colb (.GetColorBuffer ps)
+            [r g b a] (rand-color)]
+        (doseq [i (particle-indices group)]
+          (let [coli (.position colb (long i))]
+            (.Set coli r g b a)))))
+    state))
+
+(defn do-zapsmall
+  [state]
+  (let [ps ^liquidfun$b2ParticleSystem (:particle-system state)]
+    (doseq [g (lf/particle-group-seq ps)]
+      (when (< (.GetParticleCount g) min-group-size)
+        (doseq [i (particle-indices g)]
+          (lf/destroy-particle! ps i))))
+    state))
+
+(defn do-elasticize
+  [state]
+  (let [ps ^liquidfun$b2ParticleSystem (:particle-system state)
+        wall-flagval (lf/particle-flags #{:elastic :spring :wall})
+        ;; first pass, store all the group position data
+        group-coords (for [g (lf/particle-group-seq ps)]
+                       (for [i (particle-indices g)]
+                         [(.GetParticlePositionX ps i)
+                          (.GetParticlePositionY ps i)]))
+        group-coords (mapv doall group-coords)]
+    ;; destroy all particles (empty groups will be cleaned up next step)
+    (doseq [g (lf/particle-group-seq ps)]
+      (.DestroyParticles g false))
+    ;; next pass, recreate all groups as elastic
+    (doseq [coords group-coords]
+      (let [pdata (lf/seq->v2arr coords)
+            pg (lf/particle-group!
+                ps
+                {:flags #{:elastic :spring}
+                 :particle-count (count coords)
+                 :position-data pdata
+                 :color (rand-color)})]
+        (doseq [i (particle-indices pg)]
+          (let [x (.GetParticlePositionX ps i)
+                y (.GetParticlePositionY ps i)]
+            (when (wall-point? x y)
+              (.SetParticleFlags ps i wall-flagval))))))
+    state))
+
+(defn build-world
+  []
+  (->> (setup)
+       (iterate step)
+       (some #(not (::has-gas? %)))
+       (do-split-into-groups)
+       (step)
+       (do-colorize)
+       (do-zapsmall)
+       (step)
+       (do-elasticize)
+       (step)
+       :world))
+
 (defn my-key-press
   [state event]
-  (let [world (:world state)
-        pdef ^liquidfun$b2ParticleDef (get-in state [:settings :pdef])
-        ps ^liquidfun$b2ParticleSystem (:particle-system state)
-        wall-pg ^liquidfun$b2ParticleGroup (get-in state [:settings :wall-pg])]
+  (let [ps ^liquidfun$b2ParticleSystem (:particle-system state)]
     (case (:key event)
-      :s (do
-           (.SetGroupFlags wall-pg 0)
-           (.SplitParticleGroup ps wall-pg)
-           state)
-      :c (do
-           (doseq [group (lf/particle-group-seq ps)]
-             (let [colb (.GetColorBuffer ps)
-                   [r g b a] (rand-color)]
-               (doseq [i (particle-indices group)]
-                 (let [coli (.position colb (long i))]
-                   (.Set coli r g b a)))))
-           state)
-      :z (do
-           (doseq [g (lf/particle-group-seq ps)]
-             (when (< (.GetParticleCount g) min-group-size)
-               (doseq [i (particle-indices g)]
-                 (lf/destroy-particle! ps i))))
-           state)
-      :e (let [wall-flagval (lf/particle-flags #{:elastic :spring :wall})
-               ;; first pass, store all the group position data
-               group-coords (for [g (lf/particle-group-seq ps)]
-                              (for [i (particle-indices g)]
-                                [(.GetParticlePositionX ps i)
-                                 (.GetParticlePositionY ps i)]))
-               group-coords (mapv doall group-coords)]
-           ;; destroy all particles (empty groups will be cleaned up next step)
-           (doseq [g (lf/particle-group-seq ps)]
-             (.DestroyParticles g false))
-           ;; next pass, recreate all groups as elastic
-           (doseq [coords group-coords]
-             (let [pdata (lf/seq->v2arr coords)
-                   pg (lf/particle-group!
-                       ps
-                       {:flags #{:elastic :spring}
-                        :particle-count (count coords)
-                        :position-data pdata
-                        :color (rand-color)})]
-               (doseq [i (particle-indices pg)]
-                 (let [x (.GetParticlePositionX ps i)
-                       y (.GetParticlePositionY ps i)]
-                   (when (wall-point? x y)
-                     (.SetParticleFlags ps i wall-flagval))))))
-           state)
+      :s (do-split-into-groups state)
+      :c (do-colorize state)
+      :z (do-zapsmall state)
+      :e (do-elasticize state)
       :b (do
-           (body! world {}
+           (body! (:world state) {}
                   {:shape (lf/circle 0.25)
                    :restitution 0.5
                    :density 1.0})
@@ -316,14 +345,6 @@
       :d (do
            (.SetDamping ps (if (== 1.0 (.GetDamping ps))
                              0.0 1.0))
-           state)
-      :p (let [wall-i (.GetBufferIndex wall-pg)]
-           (println "[")
-           (dotimes [j (.GetParticleCount wall-pg)]
-             (print (str " [" (.GetParticlePositionX ps (+ j wall-i))
-                         "," (.GetParticlePositionY ps (+ j wall-i))
-                         "]")))
-           (println "]")
            state)
       :2 (do
            (.SetRadius ps (* 1.5 (.GetRadius ps)))
