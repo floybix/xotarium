@@ -8,5 +8,5 @@
                  [org.nfrac/liquidfun-clj "0.1.0-SNAPSHOT"]
                  [org.nfrac/liquidfun-clj.testbed "0.1.0-SNAPSHOT"]]
 
-  :aot [org.nfrac.xotarium.accretion2])
+  :aot [org.nfrac.xotarium.plant-cave])
   ;:jvm-opts ["-Dclojure.compiler.direct-linking=true"]

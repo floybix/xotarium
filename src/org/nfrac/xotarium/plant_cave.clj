@@ -1,5 +1,5 @@
-(ns org.nfrac.xotarium.accretion2
-  "An experiment with accreting wall particles."
+(ns org.nfrac.xotarium.plant-cave
+  "An experiment with generating plant-like connected forms."
   (:require [org.nfrac.liquidfun.testbed :as bed]
             [org.nfrac.liquidfun.core :as lf :refer [body! joint!
                                                      particle-system!]]
@@ -18,7 +18,7 @@
             liquidfun$b2ParticleDef
             liquidfun$b2QueryCallback)))
 
-(def p-radius 0.030)
+(def p-radius 0.035)
 (def cave-width 5.0)
 (def cave-height 5.0)
 (def cave-hw (* cave-width 0.5))
@@ -38,7 +38,7 @@
 (def accum-hits (atom {}))
 
 (gen-class
- :name org.nfrac.xotarium.accretion2.WallListener
+ :name org.nfrac.xotarium.plant-cave.WallListener
  :extends org.bytedeco.javacpp.liquidfun$b2ContactListener
  :state state
  :init init
@@ -53,10 +53,10 @@
   (defn wall-listener
     [wall-pg wall-body]
     (reset! state [wall-pg wall-body])
-    (org.nfrac.xotarium.accretion2.WallListener.)))
+    (org.nfrac.xotarium.plant-cave.WallListener.)))
 
 (defn impl-BeginContact-b2ParticleSystem-b2ParticleBodyContact
-  [^org.nfrac.xotarium.accretion2.WallListener this
+  [^org.nfrac.xotarium.plant-cave.WallListener this
    ^liquidfun$b2ParticleSystem ps ^liquidfun$b2ParticleBodyContact contact]
   (let [i (.index contact)
         [wall-pg wall-body] (.state this)
@@ -71,7 +71,7 @@
   true)
 
 (defn impl-BeginContact-b2ParticleSystem-b2ParticleContact
-  [^org.nfrac.xotarium.accretion2.WallListener this
+  [^org.nfrac.xotarium.plant-cave.WallListener this
    ^liquidfun$b2ParticleSystem ps ^liquidfun$b2ParticleContact contact]
   (let [ia (.GetIndexA contact)
         ib (.GetIndexB contact)
@@ -104,11 +104,12 @@
                                              [hw (- hh)]])})
         ps (particle-system! world
                              {:radius p-radius
-                              :pressure-strength 0.05
-                              :elastic-strength 0.15
-                              :damping-strength 0.5
+                              :pressure-strength 0.1
+                              :elastic-strength 0.75
+                              :spring-strength 0.5
+                              :damping-strength 0.1
                               :gravity-scale 0.0
-                              :strict-contact-check true
+                              ;:strict-contact-check true
                               :destroy-by-age false})
         gas-pg (lf/particle-group!
                 ps
@@ -240,7 +241,7 @@
   (let []
     (quil/fill 255)
     (quil/text (str "Keys: (g) toggle gravity (d) damping (b) ball"
-                    " (s) split (c) color (z) zap groups (e) elasticize")
+                    " (s) split (c) color (z) zap groups (e) squishify")
                10 10)))
 
 (defn rand-color []
@@ -282,10 +283,10 @@
           (lf/destroy-particle! ps i))))
     state))
 
-(defn do-elasticize
+(defn do-squishify
   [state]
   (let [ps ^liquidfun$b2ParticleSystem (:particle-system state)
-        wall-flagval (lf/particle-flags #{:elastic :spring :wall})
+        wall-flagval (lf/particle-flags #{:spring :wall})
         ;; first pass, store all the group position data
         group-coords (for [g (lf/particle-group-seq ps)]
                        (for [i (particle-indices g)]
@@ -295,12 +296,12 @@
     ;; destroy all particles (empty groups will be cleaned up next step)
     (doseq [g (lf/particle-group-seq ps)]
       (.DestroyParticles g false))
-    ;; next pass, recreate all groups as elastic
+    ;; next pass, recreate all groups as squishy
     (doseq [coords group-coords]
       (let [pdata (lf/seq->v2arr coords)
             pg (lf/particle-group!
                 ps
-                {:flags (lf/particle-flags #{:elastic :spring})
+                {:flags (lf/particle-flags #{:spring})
                  :particle-count (count coords)
                  :position-data pdata
                  :color (rand-color)})]
@@ -321,7 +322,7 @@
        (do-colorize)
        (do-zapsmall)
        (step)
-       (do-elasticize)
+       (do-squishify)
        (step)
        :world))
 
@@ -332,7 +333,7 @@
       :s (do-split-into-groups state)
       :c (do-colorize state)
       :z (do-zapsmall state)
-      :e (do-elasticize state)
+      :e (do-squishify state)
       :b (do
            (body! (:world state) {}
                   {:shape (lf/circle 0.25)
@@ -360,7 +361,7 @@
   "Run the test sketch."
   [& args]
   (quil/sketch
-   :title "Accretion2"
+   :title "Plant Cave"
    :host "liquidfun"
    :setup setup
    :update (fn [s] (if (:paused? s) s (step s)))
