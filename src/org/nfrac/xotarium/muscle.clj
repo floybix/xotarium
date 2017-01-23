@@ -44,12 +44,12 @@
                       {:shape (lf/box hw 0.1 [0 -0.1])})
         ps (particle-system! world
                              {:radius p-radius
+                              :density 2.5
                               :pressure-strength 0.1
                               :elastic-strength 0.75
-                              :spring-strength 0.5
                               ;; if damping=0 then rigid group falls through static edge
                               ;; solution: use solid box instead of edge shapes.
-                              :damping-strength 0.1
+                              :damping-strength 0.03
                               :destroy-by-age false})
         pg1 (lf/particle-group! ps {:shape (lf/box 0.5 0.5 [0 1.0])
                                     :group-flags (lf/particle-group-flags #{:solid :rigid})
