@@ -22,6 +22,7 @@
 (def cave-width 5.0)
 (def cave-height 5.0)
 (def cave-hw (* cave-width 0.5))
+(def cave-hh (* cave-height 0.5))
 (def min-group-size 5)
 (def flow-force 0.005)
 (def fix-radius (* p-radius 4))
@@ -104,10 +105,11 @@
                                              [hw (- hh)]])})
         ps (particle-system! world
                              {:radius p-radius
+                              :density 2.5
                               :pressure-strength 0.1
                               :elastic-strength 0.75
-                              :spring-strength 0.5
-                              :damping-strength 0.1
+                              :spring-strength 0.0005
+                              :damping-strength 0.8
                               :gravity-scale 0.0
                               ;:strict-contact-check true
                               :destroy-by-age false})
@@ -241,7 +243,8 @@
   (let []
     (quil/fill 255)
     (quil/text (str "Keys: (g) toggle gravity (d) damping (b) ball"
-                    " (s) split (c) color (z) zap groups (e) squishify")
+                    " (s) split (c) color (z) zap groups (e) squishify"
+                    " (a) air")
                10 10)))
 
 (defn rand-color []
@@ -286,7 +289,7 @@
 (defn do-squishify
   [state]
   (let [ps ^liquidfun$b2ParticleSystem (:particle-system state)
-        wall-flagval (lf/particle-flags #{:spring :wall})
+        wall-flagval (lf/particle-flags #{:elastic #_:spring :wall})
         ;; first pass, store all the group position data
         group-coords (for [g (lf/particle-group-seq ps)]
                        (for [i (particle-indices g)]
@@ -301,7 +304,7 @@
       (let [pdata (lf/seq->v2arr coords)
             pg (lf/particle-group!
                 ps
-                {:flags (lf/particle-flags #{:spring})
+                {:flags (lf/particle-flags #{:elastic #_:spring})
                  :particle-count (count coords)
                  :position-data pdata
                  :color (rand-color)})]
@@ -311,6 +314,52 @@
             (when (wall-point? x y)
               (.SetParticleFlags ps i wall-flagval))))))
     state))
+
+(defn abs [x] (if (neg? x) (- x) x))
+
+(defn expand-springs
+  [^liquidfun$b2ParticleGroup pg ^double expansion]
+  (let [ps (.GetParticleSystem pg)
+        i0 (.GetBufferIndex pg)
+        i1 (+ i0 (.GetParticleCount pg))
+        pp (.GetPairs ps)
+        cent (.GetCenter pg)
+        n (.GetParticleCount pg)
+        posb (.GetPositionBuffer ps)
+        wall-flagval (lf/particle-flags #{:spring :wall})]
+    (dotimes [j (.GetPairCount ps)]
+      (let [pp (.position pp j)]
+        (when (and (<= i0 (.indexA pp) i1)
+                   (<= i0 (.indexB pp) i1))
+          (.distance pp (* (.distance pp) expansion)))))
+    (doseq [i (particle-indices pg)]
+      (let [i (long i)
+            posb (.position posb i)]
+        (doto posb
+              (.subtractPut cent)
+              (.multiplyPut expansion)
+              (.addPut cent))
+        (when (or (>= (abs (.x posb)) cave-hw)
+                  (>= (abs (.y posb)) cave-hh))
+          (.SetParticleFlags ps i wall-flagval))))))
+
+(defn do-add-air
+  [state]
+  (let [ps ^liquidfun$b2ParticleSystem (:particle-system state)
+        ;; to make spring connections, first construct within particle radius
+        expansion 4.0
+        air-pg (lf/particle-group!
+                   ps
+                   {:flags (lf/particle-flags #{:spring})
+                    :stride (* 0.75 p-radius 2.0)
+                    :color [128 128 255 128]
+                    ;; add extra layer that will be the wall anchors
+                    :shape (lf/box (+ (/ cave-hw expansion) (* 0.75 p-radius 2.0))
+                                   (+ (/ cave-hh expansion) (* 0.75 p-radius 2.0)))})]
+    ;; now expand the spring connections to fill the space
+    (let [state (step state)]
+      (expand-springs air-pg expansion)
+      (assoc state ::air-pg air-pg))))
 
 (defn build-world
   []
@@ -334,10 +383,15 @@
       :c (do-colorize state)
       :z (do-zapsmall state)
       :e (do-squishify state)
+      :a (do-add-air state)
+      :q (let [air-pg (::air-pg state)
+               expansion 3.0]
+           (expand-springs air-pg expansion)
+           state)
       :b (do
            (body! (:world state) {}
                   {:shape (lf/circle 0.25)
-                   :restitution 0.5
+                   :restitution 0.1
                    :density 1.0})
            state)
       :g (do
