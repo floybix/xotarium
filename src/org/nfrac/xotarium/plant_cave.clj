@@ -106,11 +106,12 @@
   (let [world (lf/new-world)
         hw (* 0.5 cave-width)
         hh (* 0.5 cave-height)
+        pad 0.1
         ground (body! world {:type :static}
-                      {:shape (lf/edge-loop [[(- hw) (- hh)]
-                                             [(- hw) hh]
-                                             [hw hh]
-                                             [hw (- hh)]])})
+                      {:shape (lf/box (+ hw pad) pad [0 (- 0 hh pad)])}
+                      {:shape (lf/box (+ hw pad) pad [0 (+ hh pad)])}
+                      {:shape (lf/box pad (+ hh pad) [(- 0 hw pad) 0])}
+                      {:shape (lf/box pad (+ hh pad) [(+ hw pad) 0])})
         ps (particle-system! world
                              {:radius p-radius
                               :density 2.5
@@ -375,7 +376,8 @@
   []
   (->> (setup)
        (iterate step)
-       (some #(not (::has-gas? %)))
+       (drop-while ::has-gas?)
+       (first)
        (do-split-into-groups)
        (step)
        (do-colorize)
@@ -394,10 +396,6 @@
       :z (do-zapsmall state)
       :e (do-squishify state)
       :a (do-add-air state)
-      :q (let [air-pg (::air-pg state)
-               expansion 3.0]
-           (expand-springs air-pg expansion)
-           state)
       :b (do
            (body! (:world state) {}
                   {:shape (lf/circle 0.25)
