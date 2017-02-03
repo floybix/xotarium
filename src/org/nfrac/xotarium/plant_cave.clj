@@ -10,6 +10,7 @@
             liquidfun$b2ContactListener
             liquidfun$b2ParticleBodyContact
             liquidfun$b2ParticleContact
+            liquidfun$b2World
             liquidfun$b2Body
             liquidfun$b2Transform
             liquidfun$b2Vec2
@@ -384,6 +385,8 @@
        (do-zapsmall)
        (step)
        (do-squishify)
+       (step)
+       (do-add-air)
        (step)
        :world))
 

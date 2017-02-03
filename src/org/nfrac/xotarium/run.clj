@@ -161,6 +161,43 @@
    :muscle-binding [255 128 128 255]
    :muscle-inert [255 0 0 255]})
 
+(defn bounding-box
+  [coords]
+  (let [xs (map first coords)
+        ys (map second coords)]
+    [[(reduce min xs) (reduce min ys)]
+     [(reduce max xs) (reduce max ys)]]))
+
+(defn clear-push
+  [^liquidfun$b2World world coords]
+  (let [[bb-lo bb-hi] (bounding-box coords)
+        span (v2d/v-mag (v2d/v-sub bb-hi bb-lo))
+        bb-mid (v2d/v-scale (v2d/v-add bb-lo bb-hi) 0.5)
+        aabb (lf/aabb bb-lo bb-hi)
+        cb (proxy [liquidfun$b2QueryCallback] []
+             (ReportFixture
+              [fixt]
+              (let [b (lf/body-of fixt)
+                    [x y] (lf/position b)
+                    d (v2d/v-sub [x y] bb-mid)
+                    z (v2d/v-mag d)
+                    dn (v2d/v-scale d (/ span (+ z 0.01)))]
+                (lf/linear-velocity! b dn))
+              true)
+             (ShouldQueryParticleSystem
+              [ps]
+              true)
+             (ReportParticle
+              [^liquidfun$b2ParticleSystem ps i]
+              (let [x (.GetParticlePositionX ps i)
+                    y (.GetParticlePositionY ps i)
+                    d (v2d/v-sub [x y] bb-mid)
+                    z (v2d/v-mag d)
+                    [dnx dny] (v2d/v-scale d (/ span (+ z 0.01)))]
+                (.SetParticleVelocity ps i dnx dny))
+              true))]
+    (.QueryAABB world cb aabb)))
+
 (defn morpho-construct
   [mdata ^liquidfun$b2World world ^liquidfun$b2ParticleSystem ps]
   (doall
@@ -189,7 +226,11 @@
         cppn seed-cppn
         cppn-fn (cc/build-cppn-fn cppn)
         mdata (morpho-data cppn-fn p-radius [0 0] [1.0 1.0])
-        pgs (morpho-construct mdata world ps)]
+        coords (mapcat :coords mdata)]
+    (dotimes [i 60]
+      (clear-push world coords)
+      (lf/step! world (/ 1 60.0) 8 3 3))
+    (morpho-construct mdata world ps)
     (assoc bed/initial-state
            :world world
            :particle-system ps
