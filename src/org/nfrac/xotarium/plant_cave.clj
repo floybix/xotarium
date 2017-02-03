@@ -4,6 +4,7 @@
             [org.nfrac.liquidfun.core :as lf :refer [body! joint!
                                                      particle-system!]]
             [org.nfrac.liquidfun.vec2d :as v2d]
+            [org.nfrac.xotarium.util.algo-graph :as graph]
             [quil.core :as quil :include-macros true]
             [quil.middleware])
   (:import (org.bytedeco.javacpp
@@ -26,7 +27,7 @@
 (def cave-hh (* cave-height 0.5))
 (def min-group-size 5)
 (def flow-force 0.005)
-(def fix-radius (* p-radius 8))
+(def fix-radius (* p-radius 5))
 (def flow-types #{:spin-ccw :spin-cw :down :up :out})
 
 (def wall-points (atom #{}))
@@ -37,7 +38,6 @@
 (defn wall-point? [x y]
   (contains? @wall-points [(int (/ x fix-radius)) (int (/ y fix-radius))]))
 
-(def accum-hits-pre (atom {}))
 (def accum-hits (atom {}))
 
 (gen-class
@@ -69,12 +69,8 @@
                (= (.body contact) wall-body))
       (let [x (.GetParticlePositionX ps i)
             y (.GetParticlePositionY ps i)]
-        (if (contains? @accum-hits-pre i)
-          (do
-            (swap! accum-hits assoc i [x y])
-            (record-wall-point! x y))
-          ;; wait for second contact - hope it's better placed to form a triad
-          (swap! accum-hits-pre assoc i [x y])))))
+        (swap! accum-hits assoc i [x y])
+        (record-wall-point! x y))))
   true)
 
 (defn impl-BeginContact-b2ParticleSystem-b2ParticleContact
@@ -94,10 +90,7 @@
     (when-let [i gasi]
       (let [x (.GetParticlePositionX ps i)
             y (.GetParticlePositionY ps i)]
-        (if (contains? @accum-hits-pre i)
-          (swap! accum-hits assoc i [x y])
-          ;; wait for second contact - hope it's better placed to form a triad
-          (swap! accum-hits-pre assoc i [x y])))))
+        (swap! accum-hits assoc i [x y]))))
   true)
 
 (defn sign [x] (if (neg? x) -1 1))
@@ -127,7 +120,7 @@
         gas-pg (lf/particle-group!
                 ps
                 {:flags (lf/particle-flags #{:water :fixture-contact-listener})
-                 :stride (* 1.0 p-radius 2.0)
+                 :stride (* 0.85 p-radius 2.0)
                  :color [255 128 128 128]
                  :shape (lf/circle (* hw 0.3))})
         wall-pg (lf/particle-group!
@@ -246,7 +239,6 @@
   [state]
   (cond-> (bed/world-step state)
           (::has-gas? state) (gas-work)))
-      ;(bed/record-snapshot true)))
 
 (defn draw
   [state]
@@ -288,7 +280,7 @@
             (.Set coli r g b a)))))
     state))
 
-(defn do-zapsmall
+(defn do-zap-small-groups
   [state]
   (let [ps ^liquidfun$b2ParticleSystem (:particle-system state)]
     (doseq [g (lf/particle-group-seq ps)]
@@ -310,6 +302,8 @@
     ;; destroy all particles (empty groups will be cleaned up next step)
     (doseq [g (lf/particle-group-seq ps)]
       (.DestroyParticles g false))
+    ;; extend the range within which triads can form
+    (.SetRadius ps (* 1.5 p-radius))
     ;; next pass, recreate all groups as squishy
     (doseq [coords group-coords]
       (let [pdata (lf/seq->v2arr coords)
@@ -325,6 +319,38 @@
                 y (.GetParticlePositionY ps i)]
             (when (wall-point? x y)
               (.SetParticleFlags ps i wall-flagval))))))
+    ;; restore
+    (.SetRadius ps p-radius)
+    state))
+
+(defn do-zap-detached
+  [state]
+  (let [ps ^liquidfun$b2ParticleSystem (:particle-system state)
+        n (.GetParticleCount ps)
+        nt (.GetTriadCount ps)
+        tt (.GetTriads ps)]
+    (loop [ed (zipmap (range n) (repeat #{}))
+           j 0]
+      (if (< j nt)
+        (let [tt (.position tt j)
+              ia (.indexA tt)
+              ib (.indexB tt)
+              ic (.indexC tt)]
+          (recur (-> ed
+                     (update ia into [ib ic])
+                     (update ib into [ia ic])
+                     (update ic into [ia ib]))
+            (inc j)))
+        ;; done
+        (let [g (graph/directed-graph (keys ed) ed)
+              cc (graph/scc g)]
+          (doseq [is cc]
+            (when (not-any? (fn [i]
+                              (let [flag (.GetParticleFlags ps i)]
+                                (lf/particle-flag? flag :wall)))
+                            is)
+              (doseq [i is]
+                (lf/destroy-particle! ps i)))))))
     state))
 
 (defn abs [x] (if (neg? x) (- x) x))
@@ -382,9 +408,11 @@
        (do-split-into-groups)
        (step)
        (do-colorize)
-       (do-zapsmall)
+       (do-zap-small-groups)
        (step)
        (do-squishify)
+       (step)
+       (do-zap-detached)
        (step)
        (do-add-air)
        (step)
@@ -396,8 +424,9 @@
     (case (:key event)
       :s (do-split-into-groups state)
       :c (do-colorize state)
-      :z (do-zapsmall state)
+      :z (do-zap-small-groups state)
       :e (do-squishify state)
+      :x (do-zap-detached state)
       :a (do-add-air state)
       :b (do
            (body! (:world state) {}
