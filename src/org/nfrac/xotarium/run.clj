@@ -19,6 +19,8 @@
             liquidfun$b2Body
             liquidfun$b2Transform
             liquidfun$b2Vec2
+            liquidfun$b2ParticleTriad
+            liquidfun$b2ParticleHandle
             liquidfun$b2ParticleSystem
             liquidfun$b2ParticleGroup
             liquidfun$b2ParticleDef
@@ -26,22 +28,26 @@
 
 ;; interpretation:
 ;; if muscle is positive, express muscle.
-;;   - if bone is also positive, the muscle binds to adjacent bone.
+;;   - if bone is also positive, the muscle binds to adjacent bone (reactive).
 ;; if bone is positive (muscle is not), express bone.
 ;; otherwise (both non-positive), empty space.
 
 (def seed-cppn
   {:inputs #{:bias :x :y :d}
-   :outputs #{:bone :muscle :phase}
-   :finals #{:bone :phase}
+   :outputs #{:bone :muscle :freq :phase-off :strength-x :strength-y}
+   :finals #{:strength-x :strength-y}
+   :zerod #{:freq}
    :nodes {:i0 :gaussian}
    :edges {:i0 {:d -1.0}
            :muscle {:i0 1.0
                     :bias 0.2}
            :bone {:d -1.0
                   :bias -0.1}
-           :phase {;:muscle 1.0
-                   :x 1.0}}})
+           :freq {;:x 1.0}
+                  :bias 1.0}
+           :phase-off {:x 1.0}
+           :strength-x {:bias 1.0}
+           :strength-y {:bias 1.0}}})
 
 (defn hex-neighbours
   "Returns hexagonal coordinates linked to their immediate neighbours.
@@ -87,7 +93,7 @@
 
 (defn tissue-groups
   "Returns groups of particle coordinates, partitioned into each contiguous
-  bone, and the remaining muscle partitioned between binding and inert."
+  bone, and the remaining muscle partitioned between reactive and inert."
   [hex-g pheno]
   (let [expressed? (fn [id]
                      (let [m (pheno id)]
@@ -100,18 +106,18 @@
         bones (graph/scc (graph/directed-graph (keys bone-g) bone-g))
         muscle-ids (filter muscle? (keys pheno))
         muscle-inert (set (remove #(pos? (:bone (pheno %))) muscle-ids))
-        muscle-binding (set (remove muscle-inert muscle-ids))]
+        muscle-reactive (set (remove muscle-inert muscle-ids))]
     (concat
-     (map vector (repeat :bone) bones)
-     [[:muscle-inert muscle-inert]
-      [:muscle-binding muscle-binding]])))
+     (map vector (repeat :bone) (repeat :inert) bones)
+     [[:muscle :inert muscle-inert]
+      [:muscle :reactive muscle-reactive]])))
 
 (defn morpho-data
   "Calculates the expressed tissues and returns the blueprint for the body.
   Returns a sequence of groups, each containing a set of coordinates of one
   tissue type. Contiguous bones are returned as separate groups.
-  Tissue is one of :bone, :muscle-binding, :muscle-inert.
-  Muscle particles have an associated phase attribute."
+  Tissue is one of :bone or :muscle.
+  Muscle particles have associated parameters."
   [cppn-fn p-radius [cx cy] [w h]]
   (let [stride (* p-radius 2.0 0.75)
         nx (quot w stride)
@@ -121,6 +127,8 @@
         y0 (- cy (/ h 2))
         coord (fn [[ix iy]] [(+ x0 (* ix stride))
                              (+ y0 (* iy stride))])
+        p-round (fn [[x y]] [(quot x p-radius)
+                             (quot y p-radius)])
         pheno (into
                {}
                (map (fn [id]
@@ -132,22 +140,26 @@
                         [id (cppn-fn bias d zx zy)])))
                (keys hex-g))
         tgroups (tissue-groups hex-g pheno)]
-    (map (fn [[tissue ids]]
+    (map (fn [[tissue reactivity ids]]
            {:tissue tissue
+            :reactivity reactivity
             :coords (map coord ids)
-            :phases (map #(:phase (pheno %)) ids)})
+            :pcoord-params (zipmap (map (comp p-round coord) ids)
+                                   (map pheno ids))})
          tgroups)))
 
 
-(s/def ::tissue #{:bone :muscle-binding :muscle-inert})
+(s/def ::tissue #{:bone :muscle})
+(s/def ::reactivity #{:reactive :inert})
 
 (s/def ::coord (s/tuple double? double?))
 (s/def ::coords (s/every ::coord))
 
 (s/def ::tissue-group
   (s/keys :req-un [::tissue
+                   ::reactivity
                    ::coords
-                   ::phases]))
+                   ::pcoord-params]))
 
 (s/fdef morpho-data
         :args (s/cat :cppn-fn ::cppn-fn
@@ -157,9 +169,9 @@
         :ret (s/coll-of ::tissue-group))
 
 (def tissue-color
-  {:bone [255 255 255 255]
-   :muscle-binding [255 128 128 255]
-   :muscle-inert [255 0 0 255]})
+  {[:bone :inert] [255 255 255 255]
+   [:muscle :inert] [255 0 0 255]
+   [:muscle :reactive] [255 192 192 255]})
 
 (defn bounding-box
   [coords]
@@ -198,48 +210,184 @@
               true))]
     (.QueryAABB world cb aabb)))
 
-(defn morpho-construct
-  [mdata ^liquidfun$b2World world ^liquidfun$b2ParticleSystem ps]
-  (doall
-    (for [{:keys [tissue coords phases]} mdata]
+(defn morpho-construct-particle-groups
+  "Returns a map of tissue to sequences of the constructed particle groups."
+  [mdata ^liquidfun$b2ParticleSystem ps]
+  (when false ;; scaffold to hold creature in place
+    (lf/particle-group! ps
+                        {:flags (lf/particle-flags #{:wall :reactive})
+                         :color [0 255 0 255]
+                         :shape (lf/edge [-1.0 0.0] [1.0 0.0])}))
+  (->>
+    (for [{:keys [tissue reactivity coords]} mdata]
       (let [pdata (lf/seq->v2arr coords)]
-        (lf/particle-group!
-         ps
-         {:flags (lf/particle-flags
-                  (case tissue
-                   :bone #{}
-                   :muscle-inert #{:elastic}
-                   :muscle-binding #{:elastic :reactive}))
-          :group-flags (lf/particle-group-flags
-                        (case tissue
-                          :bone #{:rigid :solid}
-                          (:muscle-inert :muscle-binding) #{:solid}))
-          :color (tissue-color tissue)
-          :position-data pdata
-          :particle-count (count coords)})))))
+        [tissue
+         (lf/particle-group!
+          ps
+          {:flags (lf/particle-flags
+                   (set (concat
+                         (case tissue
+                           :muscle [:elastic]
+                           :bone [])
+                         (case reactivity
+                           :reactive [:reactive]
+                           :inert []))))
+           :group-flags (lf/particle-group-flags
+                         (case tissue
+                           :bone #{:rigid :solid}
+                           :muscle #{:solid}))
+           :color (tissue-color [tissue reactivity])
+           :position-data pdata
+           :particle-count (count coords)})]))
+    (reduce (fn [m [tissue g]]
+              (update m tissue conj g))
+            {})))
+
+(defn morpho-particle-parameters
+  "Returns a map of particle handle to parameters map,
+  for the muscle tissues."
+  [mdata ^liquidfun$b2ParticleSystem ps pgm]
+  (let [p-radius (.GetRadius ps)
+        p-round (fn [[x y]] [(quot x p-radius)
+                             (quot y p-radius)])
+        pcoord-params (->> mdata
+                           (filter #(= :muscle (:tissue %)))
+                           (map :pcoord-params)
+                           (reduce merge))
+        pis (mapcat cave/particle-indices (:muscle pgm))]
+    (into {}
+      (for [i pis]
+        (let [h (.GetParticleHandleFromIndex ps i)
+              x (.GetParticlePositionX ps i)
+              y (.GetParticlePositionY ps i)
+              params (pcoord-params (p-round [x y]))]
+          [h params])))))
+
+(defn particle-colors-by-params
+  [^liquidfun$b2ParticleSystem ps pp]
+  (let [cbuf (.GetColorBuffer ps)]
+    (doseq [[h params] pp]
+      (let [i (.GetIndex ^liquidfun$b2ParticleHandle h)
+            cbuf (.position cbuf i)]
+        (doto cbuf
+              (.r (* 255 (+ 0.5 (/ (:phase-off params) (* 2 Math/PI)))))
+              (.g (* 255 (:strength-x params)))
+              (.b (* 255 (:strength-y params))))))))
+
+(defn mean-kv
+  [ms]
+  (let [n (count ms)]
+    (->> (reduce (partial merge-with +) ms)
+         (into {} (map (fn [[k v]] [k (/ (double v) n)]))))))
+
+(defn all-triads-by-handles
+  "Returns a map of [handle-a handle-b handle-c] to triads."
+  [^liquidfun$b2ParticleSystem ps]
+  (let [nt (.GetTriadCount ps)
+        tt (.GetTriads ps)]
+    (into {}
+          (map (fn [j]
+                 (let [tt (.position tt (long j))
+                       ia (.indexA tt)
+                       ib (.indexB tt)
+                       ic (.indexC tt)
+                       ha (.GetParticleHandleFromIndex ps ia)
+                       hb (.GetParticleHandleFromIndex ps ib)
+                       hc (.GetParticleHandleFromIndex ps ic)]
+                   [[ha hb hc] (liquidfun$b2ParticleTriad. tt)])))
+          (range nt))))
+
+(defn morpho-triad-parameters
+  "Returns a map of [handle-a handle-b handle-c] to the triad parameters, for
+  the muscle tissues, with :ref-pa :ref-pb :ref-pc added to the parameters map
+  with [x y] vals. So this is used to store the baseline positions once, then we
+  will look up triads on every time step using handles (can not keep pointers to
+  triads because they are re-allocated by GrowableBuffer)."
+  [^liquidfun$b2ParticleSystem ps pp]
+  (let [h-tri (all-triads-by-handles ps)]
+    (into {}
+          (comp
+            (map (fn [[handles ^liquidfun$b2ParticleTriad tt]]
+                   (let [abcp (remove empty? (map pp (seq handles)))]
+                     (when (seq abcp) ;(= 3 (count abcp))
+                       [handles
+                        (assoc (mean-kv abcp)
+                               :ref-pa (lf/v2xy (.pa tt))
+                               :ref-pb (lf/v2xy (.pb tt))
+                               :ref-pc (lf/v2xy (.pc tt)))]))))
+            (remove nil?))
+          h-tri)))
+
+(defn v2-flex
+  [^liquidfun$b2Vec2 v [ref-x ref-y] scale-x scale-y]
+  (.x v (* ref-x scale-x))
+  (.y v (* ref-y scale-y)))
+
+(defn creature-flex
+  [^liquidfun$b2ParticleSystem ps tri-p time]
+  (let [h-tri (all-triads-by-handles ps)]
+    (doseq [[handles triad] h-tri
+            :let [params (get tri-p handles)]
+            :when params]
+      (let [{:keys [ref-pa ref-pb ref-pc]} params
+            {:keys [strength-x strength-y phase-off freq]} params
+            phase (mod (/ time freq) (* 2.0 Math/PI))
+            mag (-> (Math/sin (+ phase phase-off)) (* 0.75))
+            scale-x (+ 1.0 (* strength-x mag))
+            scale-y (+ 1.0 (* strength-y mag))
+            triad ^liquidfun$b2ParticleTriad triad]
+        (v2-flex (.pa triad) ref-pa scale-x scale-y)
+        (v2-flex (.pb triad) ref-pb scale-x scale-y)
+        (v2-flex (.pc triad) ref-pc scale-x scale-y)))))
+
+(defn abs [x] (if (neg? x) (- x) x))
+
+(defn morpho-cppn-fn
+  [cppn]
+  (let [f (cc/build-cppn-fn cppn)]
+    (fn [& args]
+      (-> (apply f args)
+          (update :freq #(+ (abs %) 0.05))
+          (update :phase-off * Math/PI)
+          (update :strength-x abs)
+          (update :strength-y abs)))))
 
 (defn setup
   []
-  (let [world (cave/build-world)
-        ps (first (lf/particle-sys-seq world))
+  (let [world (cave/build-world) ; (:world (cave/setup))
+        ps ^liquidfun$b2ParticleSystem (first (lf/particle-sys-seq world))
         p-radius (.GetRadius ps)
         cppn seed-cppn
-        cppn-fn (cc/build-cppn-fn cppn)
+        cppn-fn (morpho-cppn-fn cppn)
         mdata (morpho-data cppn-fn p-radius [0 0] [1.0 1.0])
         coords (mapcat :coords mdata)]
     (dotimes [i 60]
       (clear-push world coords)
       (lf/step! world (/ 1 60.0) 8 3 3))
-    (morpho-construct mdata world ps)
-    (assoc bed/initial-state
-           :world world
-           :particle-system ps
-           :particle-iterations 3
-           :camera (bed/map->Camera {:width 6 :height 6 :center [0 0]}))))
+    (let [pgm (morpho-construct-particle-groups mdata ps)
+          pp (morpho-particle-parameters mdata ps pgm)
+          tri-p (morpho-triad-parameters ps pp)
+          creature {:groups pgm
+                    :particle-params pp
+                    :triad-params tri-p}]
+      (particle-colors-by-params ps pp)
+      (assoc bed/initial-state
+             :world world
+             :particle-system ps
+             :creature creature
+             :particle-iterations 3
+             :camera (bed/map->Camera {:width 6 :height 6 :center [0 0]})))))
+
+(defn post-step
+  [state]
+  (let [ps ^liquidfun$b2ParticleSystem (:particle-system state)]
+    (creature-flex ps (:triad-params (:creature state)) (:time state))
+    state))
 
 (defn step
   [state]
-  (bed/world-step state))
+  (-> (bed/world-step state)
+      (post-step)))
 
 (defn draw
   [state]

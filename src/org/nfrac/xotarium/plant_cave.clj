@@ -116,7 +116,22 @@
                               :repulsive-strength 0.15
                               :gravity-scale 0.0
                               :strict-contact-check true
-                              :destroy-by-age false})
+                              :destroy-by-age false})]
+    (assoc bed/initial-state
+           :world world
+           :ground ground
+           :particle-system ps
+           :particle-iterations 3
+           :dt-secs (/ 1 60.0)
+           :camera (bed/map->Camera {:width 6 :height 6 :center [0 0]}))))
+
+(defn set-up-accretion
+  [state]
+  (let [world ^liquidfun$b2World (:world state)
+        ps ^liquidfun$b2ParticleSystem (:particle-system state)
+        ground (:ground state)
+        hw (* 0.5 cave-width)
+        hh (* 0.5 cave-height)
         gas-pg (lf/particle-group!
                 ps
                 {:flags (lf/particle-flags #{:water :fixture-contact-listener})
@@ -162,8 +177,7 @@
                              (> (rand) 0.3))
                       (lf/circle 0.25 [x0 y0])
                       (lf/edge [x0 y0] [x1 y1]))})))
-      (assoc bed/initial-state
-       :world world
+      (assoc state
        :contact-listener lstnr
        ::has-gas? true
        ::old-listener old-listener
@@ -171,11 +185,7 @@
        :settings {:wall-pg wall-pg
                   :gas-pg gas-pg
                   :pdef pdef
-                  :flow-type (rand-nth (seq flow-types))}
-       :particle-system ps
-       :particle-iterations its
-       :dt-secs (/ 1 60.0)
-       :camera (bed/map->Camera {:width 6 :height 6 :center [0 0]})))))
+                  :flow-type (rand-nth (seq flow-types))}))))
 
 (defn set-flow-force
   [flow-type ^double xz ^double yz ^liquidfun$b2Vec2 v2tmp]
@@ -402,6 +412,7 @@
 (defn build-world
   []
   (->> (setup)
+       (set-up-accretion)
        (iterate step)
        (drop-while ::has-gas?)
        (first)
@@ -457,7 +468,7 @@
   (quil/sketch
    :title "Plant Cave"
    :host "liquidfun"
-   :setup setup
+   :setup #(-> (setup) (set-up-accretion))
    :update (fn [s] (if (:paused? s) s (step s)))
    :draw draw
    :key-typed my-key-press
