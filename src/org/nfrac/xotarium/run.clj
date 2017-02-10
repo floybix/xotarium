@@ -26,6 +26,9 @@
             liquidfun$b2ParticleDef
             liquidfun$b2QueryCallback)))
 
+(def creature-width 1.8)
+(def creature-height 1.8)
+
 ;; interpretation:
 ;; if muscle is positive, express muscle.
 ;;   - if bone is also positive, the muscle binds to adjacent bone (reactive).
@@ -36,17 +39,17 @@
   {:inputs #{:bias :x :y :d}
    :outputs #{:bone :muscle :freq :phase-off :strength-x :strength-y}
    :finals #{:strength-x :strength-y}
-   :zerod #{:freq}
+   ;:zerod #{:freq}
    :nodes {:i0 :gaussian}
    :edges {:i0 {:d -1.0}
-           :muscle {:i0 1.0
-                    :bias 0.2}
-           :bone {:d -1.0
-                  :bias -0.1}
-           :freq {;:x 1.0}
-                  :bias 1.0}
+           :muscle {:i0 0.5
+                    :x 1.0
+                    :bias -0.5}
+           :bone {:i0 0.5
+                  :bias -0.2}
+           :freq {:bias -0.8}
            :phase-off {:x 1.0}
-           :strength-x {:bias 1.0}
+           :strength-x {:bias 0.1}
            :strength-y {:bias 1.0}}})
 
 (defn hex-neighbours
@@ -347,19 +350,20 @@
   (let [f (cc/build-cppn-fn cppn)]
     (fn [& args]
       (-> (apply f args)
-          (update :freq #(+ (abs %) 0.05))
+          (update :freq #(+ 0.5 (* 0.5 %) 0.05)) ;#(+ (abs %) 0.05))
           (update :phase-off * Math/PI)
           (update :strength-x abs)
           (update :strength-y abs)))))
 
 (defn setup
   []
-  (let [world (cave/build-world) ; (:world (cave/setup))
+  (let [;world (cave/build-world)
+        world (-> (cave/setup) (cave/do-add-air) :world)
         ps ^liquidfun$b2ParticleSystem (first (lf/particle-sys-seq world))
         p-radius (.GetRadius ps)
         cppn seed-cppn
         cppn-fn (morpho-cppn-fn cppn)
-        mdata (morpho-data cppn-fn p-radius [0 0] [1.0 1.0])
+        mdata (morpho-data cppn-fn p-radius [0 0] [creature-width creature-height])
         coords (mapcat :coords mdata)]
     (dotimes [i 60]
       (clear-push world coords)
@@ -376,7 +380,9 @@
              :particle-system ps
              :creature creature
              :particle-iterations 3
-             :camera (bed/map->Camera {:width 6 :height 6 :center [0 0]})))))
+             :camera (bed/map->Camera {:width cave/cave-width
+                                       :height cave/cave-height
+                                       :center [0 0]})))))
 
 (defn post-step
   [state]
