@@ -10,16 +10,16 @@
   (-> (* x 2.5)
       (Math/pow 2.0)
       (* -1.0)
-      (Math/exp)
-      (* 2.0)
-      (- 1.0)))
+      (Math/exp)))
+      ;(* 2.0)
+      ;(- 1.0)))
 
 (defn sigmoid
   ^double [^double x]
   (-> (/ 1.0
-       (-> (* x -4.9) (Math/exp) (+ 1.0)))
-      (* 2.0)
-      (- 1.0)))
+       (-> (* x -4.9) (Math/exp) (+ 1.0)))))
+      ;(* 2.0)
+      ;(- 1.0)))
 
 (defn sawtooth
   ^double [^double x]
@@ -32,9 +32,9 @@
 (defn xy->d
   ^double [^double x ^double y]
   (-> (Math/sqrt (+ (* x x) (* y y)))
-      (/ (Math/sqrt 2.0))
-      (* 2.0)
-      (- 1.0)))
+      (/ (Math/sqrt 2.0))))
+      ;(* 2.0)
+      ;(- 1.0)))
 
 (defn build-cppn-fn-expr
   [cppn]
@@ -60,7 +60,8 @@
                                   (zerod? nid)
                                   0.0
                                   (= :linear node-type)
-                                  (list '/ sum sumw)
+                                  ;(list '/ sum sumw)
+                                  `(max -1.0 (min 1.0 ~sum))
                                   :else
                                   (list (symbol "org.nfrac.xotarium.cppn-compile"
                                                 (name node-type))
