@@ -20,9 +20,9 @@
             liquidfun$b2ParticleDef
             liquidfun$b2QueryCallback)))
 
-(def p-radius 0.035)
-(def cave-width 5.0)
-(def cave-height 5.0)
+(def p-radius 0.07)
+(def cave-width 8.0)
+(def cave-height 8.0)
 (def cave-hw (* cave-width 0.5))
 (def cave-hh (* cave-height 0.5))
 (def min-group-size 5)
@@ -111,11 +111,9 @@
                               :density 2.5
                               :pressure-strength 0.1
                               :elastic-strength 0.75
-                              :spring-strength 0.0005
-                              :damping-strength 0.03
-                              :repulsive-strength 0.15
+                              :damping-strength 0.5
                               :gravity-scale 0.0
-                              :strict-contact-check true
+                              ;:strict-contact-check true
                               :destroy-by-age false})]
     (assoc bed/initial-state
            :world world
@@ -123,7 +121,9 @@
            :particle-system ps
            :particle-iterations 3
            :dt-secs (/ 1 60.0)
-           :camera (bed/map->Camera {:width 6 :height 6 :center [0 0]}))))
+           :camera (bed/map->Camera {:width cave-width
+                                     :height cave-height
+                                     :center [0 0]}))))
 
 (defn set-up-accretion
   [state]
@@ -137,7 +137,7 @@
                 {:flags (lf/particle-flags #{:water :fixture-contact-listener})
                  :stride (* 0.85 p-radius 2.0)
                  :color [255 128 128 128]
-                 :shape (lf/circle (* hw 0.3))})
+                 :shape (lf/circle (* hw 0.2))})
         wall-pg (lf/particle-group!
                  ps
                  {:flags (lf/particle-flags #{:wall :barrier :particle-contact-listener})
@@ -365,49 +365,16 @@
 
 (defn abs [x] (if (neg? x) (- x) x))
 
-(defn expand-springs
-  [^liquidfun$b2ParticleGroup pg ^double expansion]
-  (let [ps (.GetParticleSystem pg)
-        i0 (.GetBufferIndex pg)
-        i1 (+ i0 (.GetParticleCount pg))
-        pp (.GetPairs ps)
-        cent (.GetCenter pg)
-        n (.GetParticleCount pg)
-        posb (.GetPositionBuffer ps)
-        wall-flagval (lf/particle-flags #{:spring #_:viscous :wall})]
-    (dotimes [j (.GetPairCount ps)]
-      (let [pp (.position pp j)]
-        (when (and (<= i0 (.indexA pp) i1)
-                   (<= i0 (.indexB pp) i1))
-          (.distance pp (* (.distance pp) expansion)))))
-    (doseq [i (particle-indices pg)]
-      (let [i (long i)
-            posb (.position posb i)]
-        (doto posb
-              (.subtractPut cent)
-              (.multiplyPut expansion)
-              (.addPut cent))
-        (when (or (>= (abs (.x posb)) cave-hw)
-                  (>= (abs (.y posb)) cave-hh))
-          (.SetParticleFlags ps i wall-flagval))))))
-
 (defn do-add-air
   [state]
   (let [ps ^liquidfun$b2ParticleSystem (:particle-system state)
-        ;; to make spring connections, first construct within particle radius
-        expansion 4.0
         air-pg (lf/particle-group!
                    ps
-                   {:flags (lf/particle-flags #{:spring #_:viscous :repulsive})
+                   {:flags (lf/particle-flags #{:water})
                     :stride (* 0.75 p-radius 2.0)
                     :color [128 128 255 128]
-                    ;; add extra layer that will be the wall anchors
-                    :shape (lf/box (+ (/ cave-hw expansion) (* 0.75 p-radius 2.0))
-                                   (+ (/ cave-hh expansion) (* 0.75 p-radius 2.0)))})]
-    ;; now expand the spring connections to fill the space
-    (let [state (step state)]
-      (expand-springs air-pg (+ expansion 0.05))
-      (assoc state ::air-pg air-pg))))
+                    :shape (lf/box cave-hw cave-hh)})]
+    (assoc state ::air-pg air-pg)))
 
 (defn build-world
   []
