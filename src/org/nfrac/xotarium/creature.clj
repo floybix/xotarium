@@ -1,4 +1,4 @@
-(ns org.nfrac.xotarium.run
+(ns org.nfrac.xotarium.creature
   (:require [org.nfrac.xotarium.cppn :as cppn]
             [org.nfrac.xotarium.cppn-compile :as cc]
             [org.nfrac.xotarium.plant-cave :as cave]
@@ -355,13 +355,10 @@
           (update :strength-x abs)
           (update :strength-y abs)))))
 
-(defn setup
-  []
-  (let [;world (cave/build-world)
-        world (-> (cave/setup) (cave/do-add-air) :world)
-        ps ^liquidfun$b2ParticleSystem (first (lf/particle-sys-seq world))
+(defn make-creature
+  [^liquidfun$b2World world cppn]
+  (let [ps ^liquidfun$b2ParticleSystem (first (lf/particle-sys-seq world))
         p-radius (.GetRadius ps)
-        cppn seed-cppn
         cppn-fn (morpho-cppn-fn cppn)
         mdata (morpho-data cppn-fn p-radius [0 0] [creature-width creature-height])
         coords (mapcat :coords mdata)]
@@ -375,6 +372,15 @@
                     :particle-params pp
                     :triad-params tri-p}]
       (particle-colors-by-params ps pp)
+      creature)))
+
+(defn setup
+  []
+  (let [;world (cave/build-world)
+        world (-> (cave/setup) (cave/do-add-air) :world)
+        ps ^liquidfun$b2ParticleSystem (first (lf/particle-sys-seq world))
+        cppn seed-cppn
+        creature (make-creature world cppn)]
       (assoc bed/initial-state
              :world world
              :particle-system ps
@@ -382,7 +388,7 @@
              :particle-iterations 3
              :camera (bed/map->Camera {:width cave/cave-width
                                        :height cave/cave-height
-                                       :center [0 0]})))))
+                                       :center [0 0]}))))
 
 (defn post-step
   [state]
@@ -433,7 +439,7 @@
       :host "liquidfun"
       :setup setup
       :update (fn [s] (if (:paused? s) s (step s)))
-      :draw draw
+      :draw #(if (zero? (mod (quil/frame-count) 2)) (draw %) %)
       :key-typed my-key-press
       :mouse-pressed bed/mouse-pressed
       :mouse-released bed/mouse-released
