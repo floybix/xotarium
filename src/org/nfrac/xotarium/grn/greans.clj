@@ -1,6 +1,6 @@
 (ns org.nfrac.xotarium.grn.greans
   "An implementation of GReaNs (Gene Regulatory evolving artificial Networks)
-  as described in papers by Michal Joachimczak and Borys Wróbel. Specifically:
+  similar to that described in the paper by Michal Joachimczak and Borys Wróbel:
   Co-evolution of morphology and control of soft-bodied multicellular animats."
   (:require [clojure.spec :as s]
             [clojure.spec.gen :as gen]))
@@ -8,9 +8,15 @@
 (def INIT_MAX_COORD 5.0)
 
 (def parameter-defaults
-  {})
+  {:mut-coord-mag 1.0
+   :mut-coord-prob 0.05
+   :mut-sign-prob 0.05
+   :mut-type-prob 0.05
+   :switch-inout-prob 0.05
+   :dup-prob 0.2
+   :del-prob 0.2})
 
-;;; evolvable form of genome
+;;; evolvable linear form of genome
 
 (def element-types #{::promoter ::gene})
 
@@ -40,7 +46,9 @@
          :genes (s/+ ::gene)))
 
 (s/def ::elements
-  (s/+ ::regulatory-unit))
+  (s/cat :head-ignored (s/* ::gene)
+         :units (s/+ ::regulatory-unit)
+         :tail-ignored (s/* ::promoter)))
 
 (s/def ::output-tfs (s/coll-of nat-int?))
 (s/def ::input-tfs (s/coll-of nat-int?))
@@ -82,7 +90,7 @@
      ::output-tfs (take n-out (drop n-in tf-ids))
      ::parameters parameter-defaults}))
 
-;;; phenotype / usable form
+;;;  "cell" / usable form of genome
 
 (s/def ::tf-id nat-int?)
 (s/def ::promoter-id nat-int?)
@@ -147,7 +155,8 @@
 (defn genome->cell
   [genome]
   (let [cg (s/conform ::genome genome)
-        units (::elements cg)
+        _ (when (= cg ::s/invalid) (s/explain ::genome genome))
+        units (:units (::elements cg))
         unit-promoters (index-counts (map #(count (:promoters %)) units) 0)
         unit-tfs (index-counts (map #(count (:genes %)) units) 0)
         all-prs (mapcat :promoters units)
@@ -235,8 +244,95 @@
   (def g (gen/generate (s/gen ::genome)))
   (def g (random-genome 2 2))
   (def cell (genome->cell g))
-  (def csteps (iterate #(step % [1.0 1.0] 0.05) cell))
+  (def csteps (iterate #(step % [1.0 1.0] 0.15) cell))
   (map println (map cell-outputs (take 10 csteps)))
+  (def g2 (mutate g))
+  (def cell2 (genome->cell g2))
 )
 
 ;;; mutation etc
+
+(defn perturb-coords
+  [[x y] max-mag]
+  (let [angle (rand (* 2.0 Math/PI))
+        mag (rand max-mag)]
+    [(+ x (* mag (Math/cos angle)))
+     (+ y (* mag (Math/sin angle)))]))
+
+(defn element-mutate
+  [el max-mag cprob sprob tprob]
+  (cond-> el
+    (> (rand) cprob)
+    (update ::coords perturb-coords max-mag)
+    (> (rand) sprob)
+    (update ::sign * -1)
+    (> (rand) tprob)
+    (update ::element-type #(first (disj element-types %)))))
+
+(defn mutate-elements
+  [genome]
+  (let [{max-mag :mut-coord-mag
+         cprob :mut-coord-prob
+         sprob :mut-sign-prob
+         tprob :mut-type-prob} (::parameters genome)]
+    (update genome ::elements
+            (fn [es]
+              (map #(element-mutate % max-mag cprob sprob tprob) es)))))
+
+(defn genome-duplication
+  [genome]
+  (let [es (::elements genome)
+        i0 (rand-int (count es))
+        n (rand-int (- (count es) i0))
+        to (rand-int (inc (count es)))]
+    (assoc genome ::elements
+           (concat (take to es)
+                   (take n (drop i0 es))
+                   (drop to es)))))
+
+(defn genome-deletion
+  [genome]
+  (let [es (::elements genome)
+        i0 (rand-int (count es))
+        n (rand-int (- (count es) i0))]
+    (assoc genome ::elements
+           (concat (take i0 es)
+                   (drop (+ i0 n) es)))))
+
+(defn genome-switch-io
+  [genome prob]
+  (let [ins (::input-tfs genome)
+        outs (::output-tfs genome)]
+    (assoc genome
+           ::input-tfs (map #(if (> (rand) prob) (rand-int 100) %)
+                            ins)
+           ::output-tfs (map #(if (> (rand) prob) (rand-int 100) %)
+                             outs))))
+
+(defn mutate-structure
+  [genome]
+  (let [{:keys [switch-inout-prob dup-prob del-prob]} (::parameters genome)]
+    (cond-> genome
+      (> (rand) dup-prob)
+      (genome-duplication)
+      (> (rand) del-prob)
+      (genome-deletion)
+      true
+      (genome-switch-io switch-inout-prob))))
+
+(defn mutate
+  [genome]
+  (-> genome
+      (mutate-elements)
+      (mutate-structure)))
+
+(defn crossover
+  [g1 g2]
+  (let [es1 (::elements g1)
+        es2 (::elements g2)
+        i1 (rand-int (count es1))
+        ;; aligned (equal) crossover if no duplications / deletions
+        i2 (mod i1 (count es2))]
+    (assoc g1 ::elements
+           (concat (take i1 es1)
+                   (drop i2 es2)))))
