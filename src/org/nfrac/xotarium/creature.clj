@@ -37,9 +37,9 @@
 
 (def seed-cppn
   {:inputs #{:bias :x :y :d}
-   :outputs #{:bone :muscle :freq :phase-off :strength-x :strength-y}
-   :finals #{:strength-x :strength-y}
-   ;:zerod #{:freq}
+   :outputs #{:bone :muscle :angle :phase-off}
+   :finals #{:angle}
+   :zerod #{}
    :nodes {:i0 :gaussian}
    :edges {:i0 {:d -1.0}
            :muscle {:i0 0.5
@@ -47,10 +47,8 @@
                     :bias -0.5}
            :bone {:i0 0.5
                   :bias -0.2}
-           :freq {:bias -0.8}
            :phase-off {:x 1.0}
-           :strength-x {:bias 0.1}
-           :strength-y {:bias 1.0}}})
+           :angle {:bias 0.5}}})
 
 (defn hex-neighbours
   "Returns hexagonal coordinates linked to their immediate neighbours.
@@ -230,7 +228,7 @@
           {:flags (lf/particle-flags
                    (set (concat
                          (case tissue
-                           :muscle [:elastic]
+                           :muscle [:elastic :color-mixing]
                            :bone [])
                          (case reactivity
                            :reactive [:reactive]
@@ -245,6 +243,22 @@
     (reduce (fn [m [tissue g]]
               (update m tissue conj g))
             {})))
+
+(defn groups-restore-color
+  [^liquidfun$b2ParticleSystem ps pgroups [r g b a]]
+  (let [pis (mapcat cave/particle-indices pgroups)
+        cbuf (.GetColorBuffer ps)
+        r (int r)
+        g (int g)
+        b (int b)
+        a (int a)]
+    (doseq [i pis]
+      (let [cbuf (.position cbuf (int i))]
+        (doto cbuf
+          (.r r)
+          (.g g)
+          (.b b)
+          (.a a))))))
 
 (defn morpho-particle-parameters
   "Returns a map of particle handle to parameters map,
@@ -265,17 +279,6 @@
               y (.GetParticlePositionY ps i)
               params (pcoord-params (p-round [x y]))]
           [h params])))))
-
-(defn particle-colors-by-params
-  [^liquidfun$b2ParticleSystem ps pp]
-  (let [cbuf (.GetColorBuffer ps)]
-    (doseq [[h params] pp]
-      (let [i (.GetIndex ^liquidfun$b2ParticleHandle h)
-            cbuf (.position cbuf i)]
-        (doto cbuf
-              (.r (* 255 (+ 0.5 (/ (:phase-off params) (* 2 Math/PI)))))
-              (.g (* 255 (:strength-x params)))
-              (.b (* 255 (:strength-y params))))))))
 
 (defn mean-kv
   [ms]
@@ -329,16 +332,18 @@
 (defn creature-flex
   [^liquidfun$b2ParticleSystem ps tri-p time]
   (let [h-tri (all-triads-by-handles ps)]
-    (doseq [[handles triad] h-tri
+    (doseq [[handles ^liquidfun$b2ParticleTriad triad] h-tri
             :let [params (get tri-p handles)]
             :when params]
       (let [{:keys [ref-pa ref-pb ref-pc]} params
-            {:keys [strength-x strength-y phase-off freq]} params
-            phase (mod (/ time freq) (* 2.0 Math/PI))
+            {:keys [angle phase-off]} params
+            freq 6.0
+            phase (mod (* time freq) (* 2.0 Math/PI))
             mag (-> (Math/sin (+ phase phase-off)) (* 0.75))
+            strength-x (Math/cos angle)
+            strength-y (Math/sin angle)
             scale-x (+ 1.0 (* strength-x mag))
-            scale-y (+ 1.0 (* strength-y mag))
-            triad ^liquidfun$b2ParticleTriad triad]
+            scale-y (+ 1.0 (* strength-y mag))]
         (v2-flex (.pa triad) ref-pa scale-x scale-y)
         (v2-flex (.pb triad) ref-pb scale-x scale-y)
         (v2-flex (.pc triad) ref-pc scale-x scale-y)))))
@@ -350,10 +355,8 @@
   (let [f (cc/build-cppn-fn cppn)]
     (fn [& args]
       (-> (apply f args)
-          (update :freq #(+ 0.5 (* 0.5 %) 0.05)) ;#(+ (abs %) 0.05))
           (update :phase-off * Math/PI)
-          (update :strength-x abs)
-          (update :strength-y abs)))))
+          (update :angle * Math/PI)))))
 
 (defn make-creature
   [^liquidfun$b2World world cppn]
@@ -371,7 +374,6 @@
           creature {:groups pgm
                     :particle-params pp
                     :triad-params tri-p}]
-      (particle-colors-by-params ps pp)
       creature)))
 
 (defn setup
@@ -392,8 +394,10 @@
 
 (defn post-step
   [state]
-  (let [ps ^liquidfun$b2ParticleSystem (:particle-system state)]
-    (creature-flex ps (:triad-params (:creature state)) (:time state))
+  (let [ps ^liquidfun$b2ParticleSystem (:particle-system state)
+        creature (:creature state)]
+    (creature-flex ps (:triad-params creature) (:time state))
+    (groups-restore-color ps (:muscle (:groups creature)) [255 0 0 255])
     state))
 
 (defn step

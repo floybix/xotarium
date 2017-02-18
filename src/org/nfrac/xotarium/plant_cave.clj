@@ -113,6 +113,7 @@
                               :elastic-strength 0.75
                               :damping-strength 0.5
                               :gravity-scale 0.0
+                              :color-mixing-strength 0.05
                               ;:strict-contact-check true
                               :destroy-by-age false})]
     (assoc bed/initial-state
@@ -370,9 +371,9 @@
   (let [ps ^liquidfun$b2ParticleSystem (:particle-system state)
         air-pg (lf/particle-group!
                    ps
-                   {:flags (lf/particle-flags #{:water})
+                   {:flags (lf/particle-flags #{:water :color-mixing})
                     :stride (* 0.75 p-radius 2.0)
-                    :color [128 128 255 128]
+                    :color [255 255 255 128]
                     :shape (lf/box cave-hw cave-hh)})]
     (assoc state ::air-pg air-pg)))
 
