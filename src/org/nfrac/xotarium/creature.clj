@@ -37,7 +37,7 @@
 
 (def seed-cppn
   {:inputs #{:bias :x :y :d}
-   :outputs #{:bone :muscle :angle :phase-off}
+   :outputs #{:bone :muscle :angle :phase-off :factor-a :factor-b :factor-c}
    :finals #{:angle}
    :zerod #{}
    :nodes {:i0 :gaussian}
@@ -48,7 +48,10 @@
            :bone {:i0 0.5
                   :bias -0.2}
            :phase-off {:x 1.0}
-           :angle {:bias 0.5}}})
+           :angle {:bias 0.5}
+           :factor-a {:x 1.0}
+           :factor-b {:y 1.0}
+           :factor-c {:muscle 1.0}}})
 
 (defn hex-neighbours
   "Returns hexagonal coordinates linked to their immediate neighbours.
@@ -330,20 +333,22 @@
   (.y v (* ref-y scale-y)))
 
 (defn creature-flex
-  [^liquidfun$b2ParticleSystem ps tri-p time]
+  "Behaviour is defined per triad by work-fn, taking [handles params]. Argument
+  handles is a triplet of b2ParticleHandle, used to identify a triad, and params
+  is a map of the cppn outputs (averaged over the triad particles). The work-fn
+  should return triad expansion/contraction between -1.0 and 1.0."
+  [^liquidfun$b2ParticleSystem ps tri-p work-fn]
   (let [h-tri (all-triads-by-handles ps)]
     (doseq [[handles ^liquidfun$b2ParticleTriad triad] h-tri
             :let [params (get tri-p handles)]
             :when params]
       (let [{:keys [ref-pa ref-pb ref-pc]} params
-            {:keys [angle phase-off]} params
-            freq 6.0
-            phase (mod (* time freq) (* 2.0 Math/PI))
-            mag (-> (Math/sin (+ phase phase-off)) (* 0.75))
+            {:keys [angle]} params
             strength-x (Math/cos angle)
             strength-y (Math/sin angle)
-            scale-x (+ 1.0 (* strength-x mag))
-            scale-y (+ 1.0 (* strength-y mag))]
+            mag (work-fn handles params)
+            scale-x (+ 1.0 (* strength-x mag 0.75))
+            scale-y (+ 1.0 (* strength-y mag 0.75))]
         (v2-flex (.pa triad) ref-pa scale-x scale-y)
         (v2-flex (.pb triad) ref-pb scale-x scale-y)
         (v2-flex (.pc triad) ref-pc scale-x scale-y)))))
@@ -370,11 +375,11 @@
       (lf/step! world (/ 1 60.0) 8 3 3))
     (let [pgm (morpho-construct-particle-groups mdata ps)
           pp (morpho-particle-parameters mdata ps pgm)
-          tri-p (morpho-triad-parameters ps pp)
-          creature {:groups pgm
-                    :particle-params pp
-                    :triad-params tri-p}]
-      creature)))
+          tri-p (morpho-triad-parameters ps pp)]
+      {:cppn cppn
+       :groups pgm
+       :particle-params pp
+       :triad-params tri-p})))
 
 (defn setup
   []
@@ -395,8 +400,14 @@
 (defn post-step
   [state]
   (let [ps ^liquidfun$b2ParticleSystem (:particle-system state)
-        creature (:creature state)]
-    (creature-flex ps (:triad-params creature) (:time state))
+        creature (:creature state)
+        time (:time state)
+        work-fn (fn [_ params]
+                  (let [freq 6.0
+                        phase (mod (* time freq) (* 2.0 Math/PI))
+                        phase-off (:phase-off params)]
+                    (Math/sin (+ phase phase-off))))]
+    (creature-flex ps (:triad-params creature) work-fn)
     (groups-restore-color ps (:muscle (:groups creature)) [255 0 0 255])
     state))
 
