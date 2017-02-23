@@ -3,7 +3,9 @@
   similar to that described in the paper by Michal Joachimczak and Borys Wróbel:
   Co-evolution of morphology and control of soft-bodied multicellular animats."
   (:require [clojure.spec :as s]
-            [clojure.spec.gen :as gen]))
+            [clojure.spec.gen :as gen]
+            [org.nfrac.xotarium.util :as util]
+            [clojure.test.check.random :as random]))
 
 (def INIT_MAX_COORD 5.0)
 
@@ -67,24 +69,28 @@
   (gen/generate (s/gen ::genome)))
 
 (defn random-element
-  [type]
-  {::element-type type
-   ::sign (rand-nth [-1 1])
-   ::coords [(rand INIT_MAX_COORD) (rand INIT_MAX_COORD)]})
+  [rng type]
+  (let [[rng1 rng2 rng3] (random/split-n rng 3)]
+    {::element-type type
+     ::sign (util/rand-nth rng1 [-1 1])
+     ::coords [(util/rand rng2 0 INIT_MAX_COORD)
+               (util/rand rng3 0 INIT_MAX_COORD)]}))
 
 (defn random-unit
-  []
-  (let [npr (+ 1 (rand-int 3))
-        ntf (+ 1 (rand-int 3))]
-    (concat (repeatedly npr #(random-element ::promoter))
-            (repeatedly ntf #(random-element ::gene)))))
+  [rng]
+  (let [[rng1 rng2 rng3 rng4] (random/split-n rng 4)
+        npr (+ 1 (util/rand-int rng1 3))
+        ntf (+ 1 (util/rand-int rng2 3))]
+    (concat (map #(random-element % ::promoter) (random/split-n rng3 npr))
+            (map #(random-element % ::gene) (random/split-n rng4 ntf)))))
 
 (defn random-genome
-  [n-in n-out]
+  [n-in n-out rng]
   (let [n-units (+ n-in n-out 1)
-        es (apply concat (repeatedly n-units #(random-unit)))
+        [rng rng*] (random/split rng)
+        es (mapcat #(random-unit %) (random/split-n rng* n-units))
         n-tfs (count (filter #(= ::gene (::element-type %)) es))
-        tf-ids (shuffle (range n-tfs))]
+        tf-ids (util/shuffle rng (range n-tfs))]
     {::elements es
      ::input-tfs (take n-in tf-ids)
      ::output-tfs (take n-out (drop n-in tf-ids))
