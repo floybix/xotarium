@@ -9,5 +9,7 @@
                  [org.nfrac/liquidfun-clj "0.1.0-SNAPSHOT"]
                  [org.nfrac/liquidfun-clj.testbed "0.1.0-SNAPSHOT"]]
 
-  :aot [org.nfrac.xotarium.plant-cave])
-  ;:jvm-opts ["-Dclojure.compiler.direct-linking=true"]
+  :aot [org.nfrac.xotarium.plant-cave]
+  ;;:jvm-opts ["-Dclojure.compiler.direct-linking=true"]
+
+  :profiles {:dev {:dependencies [[gyptis "0.2.2"]]}})
