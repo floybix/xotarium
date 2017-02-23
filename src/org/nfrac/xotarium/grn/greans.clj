@@ -18,7 +18,7 @@
    :dup-prob 0.2
    :del-prob 0.2})
 
-;;; evolvable linear form of genome
+;;; evolvable linear form of grn
 
 (def element-types #{::promoter ::gene})
 
@@ -58,7 +58,7 @@
 (s/def ::parameters
   (s/keys))
 
-(s/def ::genome
+(s/def ::grn
   (s/keys :req [::elements
                 ::input-tfs
                 ::output-tfs
@@ -66,7 +66,7 @@
 
 (comment
   (s/exercise ::gene)
-  (gen/generate (s/gen ::genome)))
+  (gen/generate (s/gen ::grn)))
 
 (defn random-element
   [rng type]
@@ -84,7 +84,7 @@
     (concat (map #(random-element % ::promoter) (random/split-n rng3 npr))
             (map #(random-element % ::gene) (random/split-n rng4 ntf)))))
 
-(defn random-genome
+(defn random-grn
   [n-in n-out rng]
   (let [n-units (+ n-in n-out 1)
         [rng rng*] (random/split rng)
@@ -96,7 +96,7 @@
      ::output-tfs (take n-out (drop n-in tf-ids))
      ::parameters parameter-defaults}))
 
-;;;  "cell" / usable form of genome
+;;;  "cell" / usable form of grn
 
 (s/def ::tf-id nat-int?)
 (s/def ::promoter-id nat-int?)
@@ -158,10 +158,10 @@
             {}
             (map-indexed vector tfs))))
 
-(defn genome->cell
-  [genome]
-  (let [cg (s/conform ::genome genome)
-        _ (when (= cg ::s/invalid) (s/explain ::genome genome))
+(defn grn->cell
+  [grn]
+  (let [cg (s/conform ::grn grn)
+        _ (when (= cg ::s/invalid) (s/explain ::grn grn))
         units (:units (::elements cg))
         unit-promoters (index-counts (map #(count (:promoters %)) units) 0)
         unit-tfs (index-counts (map #(count (:genes %)) units) 0)
@@ -247,13 +247,13 @@
 ;; TODO: rng
 
 (comment
-  (def g (gen/generate (s/gen ::genome)))
-  (def g (random-genome 2 2))
-  (def cell (genome->cell g))
+  (def g (gen/generate (s/gen ::grn)))
+  (def g (random-grn 2 2))
+  (def cell (grn->cell g))
   (def csteps (iterate #(step % [1.0 1.0] 0.15) cell))
   (map println (map cell-outputs (take 10 csteps)))
   (def g2 (mutate g))
-  (def cell2 (genome->cell g2))
+  (def cell2 (grn->cell g2))
 )
 
 ;;; mutation etc
@@ -276,49 +276,49 @@
     (update ::element-type #(first (disj element-types %)))))
 
 (defn mutate-elements
-  [genome]
+  [grn]
   (let [{max-mag :mut-coord-mag
          cprob :mut-coord-prob
          sprob :mut-sign-prob
-         tprob :mut-type-prob} (::parameters genome)]
-    (update genome ::elements
+         tprob :mut-type-prob} (::parameters grn)]
+    (update grn ::elements
             (fn [es]
               (map #(element-mutate % max-mag cprob sprob tprob) es)))))
 
 (defn genome-duplication
-  [genome]
-  (let [es (::elements genome)
+  [grn]
+  (let [es (::elements grn)
         i0 (rand-int (count es))
         n (rand-int (- (count es) i0))
         to (rand-int (inc (count es)))]
-    (assoc genome ::elements
+    (assoc grn ::elements
            (concat (take to es)
                    (take n (drop i0 es))
                    (drop to es)))))
 
 (defn genome-deletion
-  [genome]
-  (let [es (::elements genome)
+  [grn]
+  (let [es (::elements grn)
         i0 (rand-int (count es))
         n (rand-int (- (count es) i0))]
-    (assoc genome ::elements
+    (assoc grn ::elements
            (concat (take i0 es)
                    (drop (+ i0 n) es)))))
 
 (defn genome-switch-io
-  [genome prob]
-  (let [ins (::input-tfs genome)
-        outs (::output-tfs genome)]
-    (assoc genome
+  [grn prob]
+  (let [ins (::input-tfs grn)
+        outs (::output-tfs grn)]
+    (assoc grn
            ::input-tfs (map #(if (> (rand) prob) (rand-int 100) %)
                             ins)
            ::output-tfs (map #(if (> (rand) prob) (rand-int 100) %)
                              outs))))
 
 (defn mutate-structure
-  [genome]
-  (let [{:keys [switch-inout-prob dup-prob del-prob]} (::parameters genome)]
-    (cond-> genome
+  [grn]
+  (let [{:keys [switch-inout-prob dup-prob del-prob]} (::parameters grn)]
+    (cond-> grn
       (> (rand) dup-prob)
       (genome-duplication)
       (> (rand) del-prob)
@@ -327,8 +327,8 @@
       (genome-switch-io switch-inout-prob))))
 
 (defn mutate
-  [genome]
-  (-> genome
+  [grn]
+  (-> grn
       (mutate-elements)
       (mutate-structure)))
 

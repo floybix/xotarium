@@ -53,10 +53,34 @@
    messenger-c
    oscillator-freq]
 
-(defn add-behaviour
-  [creature-body grn]
-  (let [tri-p (:triad-params creature-body)
-        cell-form (grn/genome->cell grn)
+(s/def ::genome
+  (s/keys :req-un [::cppn/cppn
+                   ::grn/grn]))
+
+(defn random-genome
+  [rng]
+  (let [cppn cre/seed-cppn
+        grn (grn/random-grn (count beh-inputs) (count beh-outputs) rng)]
+    {:cppn cppn
+     :grn grn}))
+
+(defn mutate
+  [genome]
+  (let [{:keys [grn cppn]} genome]
+    (assoc genome
+           :cppn (cppn/mutate-general cppn)
+           :grn (grn/mutate grn))))
+
+(defn crossover
+  [g1 g2]
+  (assoc g1 :grn (grn/crossover (:grn g1) (:grn g2))))
+
+(defn come-alive
+  [world genome]
+  (let [{:keys [grn cppn]} genome
+        creature-body (cre/make-creature world cppn)
+        tri-p (:triad-params creature-body)
+        cell-form (grn/grn->cell grn)
         tri-concs (zipmap (keys tri-p)
                           (repeat (::grn/concs cell-form)))]
     (assoc creature-body
@@ -69,11 +93,9 @@
   (let [;world (cave/build-world)
         world (-> (cave/setup) (cave/do-add-air) :world)
         ps ^liquidfun$b2ParticleSystem (first (lf/particle-sys-seq world))
-        cppn cre/seed-cppn
-        creature-body (cre/make-creature world cppn)
         [rng rng*] (random/split rng)
-        grn (grn/random-genome (count beh-inputs) (count beh-outputs) rng*)
-        creature (add-behaviour creature-body grn)]
+        genome (random-genome rng*)
+        creature (come-alive world genome)]
       (assoc bed/initial-state
              :world world
              :particle-system ps

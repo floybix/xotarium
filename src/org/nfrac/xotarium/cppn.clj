@@ -246,3 +246,13 @@
                        ws
                        use-is)]
     (set-cppn-weights cppn new-ws)))
+
+(defn mutate-general
+  [cppn]
+  (cond
+    (< (rand) 0.33)
+    (mutate-add-node cppn)
+    (< (rand) 0.5)
+    (mutate-add-conn cppn)
+    :else
+    (mutate-rewire-conn cppn)))
