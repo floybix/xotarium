@@ -381,6 +381,12 @@
        :particle-params pp
        :triad-params tri-p})))
 
+(defn destroy-creature
+  [creature]
+  (doseq [grps (vals (:groups creature))
+          grp grps]
+    (.DestroyParticles ^liquidfun$b2ParticleGroup grp)))
+
 (defn setup
   []
   (let [;world (cave/build-world)
@@ -422,7 +428,7 @@
   (let []
     (quil/fill 255)
     (quil/text (str "Keys: (g) toggle gravity (d) damping (b) ball"
-                    " (a) air")
+                    " (a) air (n) new mutant")
                10 10)))
 
 (defn my-key-press
@@ -444,6 +450,11 @@
            (.SetDamping ps (if (== 1.0 (.GetDamping ps))
                              0.0 1.0))
            state)
+      :n (do
+           (destroy-creature (:creature state))
+           (assoc state :creature
+                  (make-creature (:world state)
+                                 (cppn/mutate-general seed-cppn))))
       ;; otherwise pass on to testbed
       (bed/key-press state event))))
 
