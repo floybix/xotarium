@@ -5,8 +5,11 @@
                                                      particle-system!]]
             [org.nfrac.liquidfun.vec2d :as v2d]
             [org.nfrac.xotarium.util.algo-graph :as graph]
+            [org.nfrac.xotarium.util :as util]
             [quil.core :as quil :include-macros true]
-            [quil.middleware])
+            [quil.middleware]
+            [clojure.spec :as s]
+            [clojure.test.check.random :as random])
   (:import (org.bytedeco.javacpp
             liquidfun$b2ContactListener
             liquidfun$b2ParticleBodyContact
@@ -94,9 +97,9 @@
   true)
 
 (defn sign [x] (if (neg? x) -1 1))
-(defn rand-in [min max] (+ min (rand (- max min))))
 
-(defn setup []
+(defn setup
+  []
   (let [world (lf/new-world)
         hw (* 0.5 cave-width)
         hh (* 0.5 cave-height)
@@ -127,7 +130,7 @@
                                      :center [0 0]}))))
 
 (defn set-up-accretion
-  [state]
+  [state rng]
   (let [world ^liquidfun$b2World (:world state)
         ps ^liquidfun$b2ParticleSystem (:particle-system state)
         ground (:ground state)
@@ -150,7 +153,12 @@
               {:flags (lf/particle-flags #{:wall :barrier :particle-contact-listener})
                :color [255 255 255 255]
                :group wall-pg})
-        its (.CalculateReasonableParticleIterations world (/ 1 60.0))]
+        its (.CalculateReasonableParticleIterations world (/ 1 60.0))
+        randsrc (atom (random/split-n rng (+ 1 (* 4 4) (* 4 5))))
+        getrng! #(let [x (first @randsrc)]
+                   (swap! randsrc rest)
+                   x)
+        flow-type (util/rand-nth (getrng!) (seq flow-types))]
     (println "reasonable particle iterations:" its)
     (.SetContactListener world lstnr)
     ;; clear out the center of gas as particles can end up fixed there
@@ -158,10 +166,10 @@
                               (doto (liquidfun$b2Transform.) (.SetIdentity)))
     ;; add some random shapes to accrete on
     (doseq [[sx sy] [[1 1] [1 -1] [-1 1] [-1 -1]]]
-      (let [x0 (* (rand-in (* 0.25 hw) hw) sx)
-            x1 (* (rand-in (* 0.25 hw) hw) sx)
-            y0 (* (rand-in (* 0.25 hh) hh) sy)
-            y1 (* (rand-in (* 0.25 hh) hh) sy)
+      (let [x0 (* (util/rand (getrng!) (* 0.25 hw) hw) sx)
+            x1 (* (util/rand (getrng!) (* 0.25 hw) hw) sx)
+            y0 (* (util/rand (getrng!) (* 0.25 hh) hh) sy)
+            y1 (* (util/rand (getrng!) (* 0.25 hh) hh) sy)
             [ang mag] ((juxt v2d/v-angle v2d/v-mag)
                        (v2d/v-sub [x1 y1] [x0 y0]))]
         (lf/fixture! ground
@@ -169,13 +177,13 @@
     ;; add some more random shapes to disturb the gas flow
     (let [scaffolding (lf/body! world {:type :static})]
       (doseq [[sx sy] [[1 1] [1 -1] [-1 1] [-1 -1]]]
-        (let [x0 (* (rand-in (* 0.01 hw) (* 0.9 hw)) sx)
-              x1 (* (rand-in (* 0.01 hw) (* 0.9 hw)) sx)
-              y0 (* (rand-in (* 0.01 hh) (* 0.9 hh)) sy)
-              y1 (* (rand-in (* 0.01 hh) (* 0.9 hh)) sy)]
+        (let [x0 (* (util/rand (getrng!) (* 0.01 hw) (* 0.9 hw)) sx)
+              x1 (* (util/rand (getrng!) (* 0.01 hw) (* 0.9 hw)) sx)
+              y0 (* (util/rand (getrng!) (* 0.01 hh) (* 0.9 hh)) sy)
+              y1 (* (util/rand (getrng!) (* 0.01 hh) (* 0.9 hh)) sy)]
           (lf/fixture! scaffolding
             {:shape (if (and (> (v2d/v-mag [x0 y0]) (* 0.35 hw))
-                             (> (rand) 0.3))
+                             (> (util/rand (getrng!) 0 0.3)))
                       (lf/circle 0.25 [x0 y0])
                       (lf/edge [x0 y0] [x1 y1]))})))
       (assoc state
@@ -186,7 +194,7 @@
        :settings {:wall-pg wall-pg
                   :gas-pg gas-pg
                   :pdef pdef
-                  :flow-type (rand-nth (seq flow-types))}))))
+                  :flow-type flow-type}))))
 
 (defn set-flow-force
   [flow-type ^double xz ^double yz ^liquidfun$b2Vec2 v2tmp]
@@ -262,10 +270,10 @@
                10 10)))
 
 (defn rand-color []
-  [(int (rand-in 64 255))
-   (int (rand-in 64 255))
-   (int (rand-in 64 255))
-   255])
+  [0
+   255
+   0
+   (+ 64 (rand-int (- 256 64)))])
 
 (defn particle-indices
   [^liquidfun$b2ParticleGroup pg]
@@ -432,18 +440,21 @@
 
 (defn ^:export run
   "Run the test sketch."
-  [& args]
-  (quil/sketch
-   :title "Plant Cave"
-   :host "liquidfun"
-   :setup #(-> (setup) (set-up-accretion))
-   :update (fn [s] (if (:paused? s) s (step s)))
-   :draw draw
-   :key-typed my-key-press
-   :mouse-pressed bed/mouse-pressed
-   :mouse-released bed/mouse-released
-   :mouse-dragged bed/mouse-dragged
-   :mouse-wheel bed/mouse-wheel
-   :size [600 500]
-   :features [:resizable]
-   :middleware [quil.middleware/fun-mode]))
+  [seed & args]
+  (let [rng (if seed
+              (random/make-random (Long. (str seed)))
+              (random/make-random))]
+    (quil/sketch
+     :title "Plant Cave"
+     :host "liquidfun"
+     :setup #(-> (setup) (set-up-accretion rng))
+     :update (fn [s] (if (:paused? s) s (step s)))
+     :draw draw
+     :key-typed my-key-press
+     :mouse-pressed bed/mouse-pressed
+     :mouse-released bed/mouse-released
+     :mouse-dragged bed/mouse-dragged
+     :mouse-wheel bed/mouse-wheel
+     :size [600 500]
+     :features [:resizable]
+     :middleware [quil.middleware/fun-mode])))
