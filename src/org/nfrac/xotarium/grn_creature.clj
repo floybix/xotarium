@@ -64,15 +64,17 @@
     {:cppn cppn
      :grn grn}))
 
+;; TODO rng
+
 (defn mutate
-  [genome]
+  [genome rng]
   (let [{:keys [grn cppn]} genome]
     (assoc genome
-           :cppn (cppn/mutate-general cppn)
+           :cppn cppn ; (cppn/mutate-general cppn) ;; temporarily static
            :grn (grn/mutate grn))))
 
 (defn crossover
-  [g1 g2]
+  [g1 g2 rng]
   (assoc g1 :grn (grn/crossover (:grn g1) (:grn g2))))
 
 (defn come-alive
@@ -89,18 +91,15 @@
            :grn grn)))
 
 (defn setup
-  [rng]
+  [genome]
   (let [;world (cave/build-world)
         world (-> (cave/setup) (cave/do-add-air) :world)
         ps ^liquidfun$b2ParticleSystem (first (lf/particle-sys-seq world))
-        [rng rng*] (random/split rng)
-        genome (random-genome rng*)
         creature (come-alive world genome)]
       (assoc bed/initial-state
              :world world
              :particle-system ps
              :creature creature
-             :rng rng
              :particle-iterations 3
              :camera (bed/map->Camera {:width cave/cave-width
                                        :height cave/cave-height
@@ -178,7 +177,7 @@
     (quil/sketch
      :title "Xotarium"
      :host "liquidfun"
-     :setup #(setup rng)
+     :setup #(setup (random-genome rng))
      :update (fn [s] (if (:paused? s) s (step s)))
      :draw #(if (zero? (mod (quil/frame-count) 2)) (bed/draw % true) %)
      :key-typed my-key-press

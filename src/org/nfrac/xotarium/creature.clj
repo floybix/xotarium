@@ -361,7 +361,10 @@
     (fn [& args]
       (-> (apply f args)
           (update :phase-off * Math/PI)
-          (update :angle * Math/PI)))))
+          (update :angle * Math/PI)
+          (update :factor-a abs)
+          (update :factor-b abs)
+          (update :factor-c abs)))))
 
 (defn make-creature
   [^liquidfun$b2World world cppn]
