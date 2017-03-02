@@ -52,17 +52,21 @@
          :units (s/+ ::regulatory-unit)
          :tail-ignored (s/* ::promoter)))
 
-(s/def ::output-tfs (s/coll-of nat-int?))
-(s/def ::input-tfs (s/coll-of nat-int?))
+(s/def ::output-tfs (s/coll-of nat-int? :min-count 1))
+(s/def ::input-tfs (s/coll-of nat-int? :min-count 1))
 
 (s/def ::parameters
   (s/keys))
 
 (s/def ::grn
-  (s/keys :req [::elements
-                ::input-tfs
-                ::output-tfs
-                ::parameters]))
+  (s/and
+   (s/keys :req [::elements
+                 ::input-tfs
+                 ::output-tfs
+                 ::parameters])
+   #(>= (count (:units (::elements %)))
+        (+ (count (::input-tfs %))
+           (count (::output-tfs %))))))
 
 (comment
   (s/exercise ::gene)
@@ -95,6 +99,17 @@
      ::input-tfs (take n-in tf-ids)
      ::output-tfs (take n-out (drop n-in tf-ids))
      ::parameters parameter-defaults}))
+
+(s/fdef random-element
+        :args (s/cat :rng ::util/rng
+                     :type ::element-type)
+        :ret ::element)
+
+(s/fdef random-grn
+        :args (s/cat :n-in pos-int?
+                     :n-out pos-int?
+                     :rng ::util/rng)
+        :ret ::grn)
 
 ;;;  "cell" / usable form of grn
 
@@ -177,6 +192,10 @@
       ::influences pr-influences
       ::concs (vec (repeat (count all-tfs) 0.0))})))
 
+(s/fdef grn->cell
+        :args (s/cat :grn ::grn)
+        :ret ::cell)
+
 (defn promoter-activation
   [pr-id influences concs]
   (reduce-kv (fn [a tf-id infl]
@@ -237,12 +256,25 @@
         ;; done
         (assoc cell ::concs (persistent! new-concs))))))
 
+(s/fdef step
+        :args (s/and
+               (s/cat :cell ::cell
+                      :input-concs (s/coll-of ::concentration)
+                      :dt (s/and (s/double-in :min 0 :NaN? false) pos?))
+               #(= (count (:input-concs %))
+                   (count (::input-tfs (:cell %)))))
+        :ret ::cell)
+
 (defn cell-outputs
   [cell]
   (let [concs (::concs cell)
         n (count concs)]
     (mapv #(get concs (mod % n))
           (::output-tfs cell))))
+
+(s/fdef cell-outputs
+        :args (s/cat :cell ::cell)
+        :ret (s/coll-of ::concentration :kind vector?))
 
 ;; TODO: rng
 
@@ -258,6 +290,11 @@
 
 ;;; mutation etc
 
+(def MUT_ATTEMPTS 8)
+
+(s/def ::probability
+  (s/double-in :min 0.0 :max 1.0 :NaN? false))
+
 (defn perturb-coords
   [[x y] max-mag]
   (let [angle (rand (* 2.0 Math/PI))
@@ -268,14 +305,22 @@
 (defn element-mutate
   [el max-mag cprob sprob tprob]
   (cond-> el
-    (> (rand) cprob)
+    (< (rand) cprob)
     (update ::coords perturb-coords max-mag)
-    (> (rand) sprob)
+    (< (rand) sprob)
     (update ::sign * -1)
-    (> (rand) tprob)
+    (< (rand) tprob)
     (update ::element-type #(first (disj element-types %)))))
 
-(defn mutate-elements
+(s/fdef element-mutate
+        :args (s/cat :el ::element
+                     :max-mag number?
+                     :cprob ::probability
+                     :sprob ::probability
+                     :tprob ::probability)
+        :ret ::element)
+
+(defn mutate-elements*
   [grn]
   (let [{max-mag :mut-coord-mag
          cprob :mut-coord-prob
@@ -284,6 +329,23 @@
     (update grn ::elements
             (fn [es]
               (map #(element-mutate % max-mag cprob sprob tprob) es)))))
+
+(defn mutate-elements
+  [grn]
+  (loop [attempt 1]
+    (let [grn2 (mutate-elements* grn)]
+      (if (s/valid? ::grn grn2)
+        grn2
+        (if (>= attempt MUT_ATTEMPTS)
+          (do
+            (println "mutate-elements invalid after" MUT_ATTEMPTS "attempts.")
+            (s/explain ::grn grn2)
+            grn)
+          (recur (inc attempt)))))))
+
+(s/fdef mutate-elements
+        :args (s/cat :grn ::grn)
+        :ret ::grn)
 
 (defn genome-duplication
   [grn]
@@ -296,32 +358,66 @@
                    (take n (drop i0 es))
                    (drop to es)))))
 
-(defn genome-deletion
+(s/fdef genome-duplication
+        :args (s/cat :grn ::grn)
+        :ret ::grn)
+
+(defn rand-int-in
+  [lo hi]
+  (+ lo (rand-int (- hi lo))))
+
+(defn genome-deletion*
   [grn]
   (let [es (::elements grn)
-        i0 (rand-int (count es))
-        n (rand-int (- (count es) i0))]
+        min-possible-es (* 2 (+ 1 (count (::input-tfs grn))
+                                (count (::output-tfs grn))))
+        n (rand-int-in 1 (- (count es) min-possible-es))
+        i0 (rand-int (- (count es) n))]
     (assoc grn ::elements
            (concat (take i0 es)
                    (drop (+ i0 n) es)))))
+
+(defn genome-deletion
+  [grn]
+  #_
+  {:pre [(s/valid? ::grn grn)]}
+  (loop [attempt 1]
+    (let [grn2 (genome-deletion* grn)]
+      (if (s/valid? ::grn grn2)
+        grn2
+        (if (>= attempt MUT_ATTEMPTS)
+          (do
+            (println "genome-deletion invalid after" MUT_ATTEMPTS "attempts.")
+            (s/explain ::grn grn2)
+            grn)
+          (recur (inc attempt)))))))
+
+(s/fdef genome-deletion
+        :args (s/cat :grn ::grn)
+        :ret ::grn)
 
 (defn genome-switch-io
   [grn prob]
   (let [ins (::input-tfs grn)
         outs (::output-tfs grn)]
     (assoc grn
-           ::input-tfs (map #(if (> (rand) prob) (rand-int 100) %)
+           ::input-tfs (map #(if (< (rand) prob) (rand-int 100) %)
                             ins)
-           ::output-tfs (map #(if (> (rand) prob) (rand-int 100) %)
+           ::output-tfs (map #(if (< (rand) prob) (rand-int 100) %)
                              outs))))
+
+(s/fdef genome-switch-io
+        :args (s/cat :grn ::grn
+                     :prob ::probability)
+        :ret ::grn)
 
 (defn mutate-structure
   [grn]
   (let [{:keys [switch-inout-prob dup-prob del-prob]} (::parameters grn)]
     (cond-> grn
-      (> (rand) dup-prob)
+      (< (rand) dup-prob)
       (genome-duplication)
-      (> (rand) del-prob)
+      (< (rand) del-prob)
       (genome-deletion)
       true
       (genome-switch-io switch-inout-prob))))
@@ -332,7 +428,7 @@
       (mutate-elements)
       (mutate-structure)))
 
-(defn crossover
+(defn crossover*
   [g1 g2]
   (let [es1 (::elements g1)
         es2 (::elements g2)
@@ -342,3 +438,24 @@
     (assoc g1 ::elements
            (concat (take i1 es1)
                    (drop i2 es2)))))
+
+(defn crossover
+  [g1 g2]
+  #_
+  {:pre [(s/valid? ::grn g1)
+         (s/valid? ::grn g2)]}
+  (loop [attempt 1]
+    (let [grn2 (crossover* g1 g2)]
+      (if (s/valid? ::grn grn2)
+        grn2
+        (if (>= attempt MUT_ATTEMPTS)
+          (do
+            (println "crossover invalid after" MUT_ATTEMPTS "attempts.")
+            (s/explain ::grn grn2)
+            g1)
+          (recur (inc attempt)))))))
+
+(s/fdef crossover
+        :args (s/cat :g1 ::grn
+                     :g2 ::grn)
+        :ret ::grn)
