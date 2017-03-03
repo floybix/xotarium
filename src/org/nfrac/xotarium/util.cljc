@@ -46,20 +46,23 @@
                  (s/with-gen #(gen/fmap random/make-random (gen/int)))))
 
 (defn rand
-  [rng lower upper]
-  {:pre [(<= lower upper)]}
-  (-> (random/rand-double rng)
-      (* (- upper lower))
-      (+ lower)))
+  (^double [rng ^double upper]
+   (-> (random/rand-double rng)
+       (* upper)))
+  (^double [rng ^double lower ^double upper]
+   {:pre [(<= lower upper)]}
+   (-> (random/rand-double rng)
+       (* (- upper lower))
+       (+ lower))))
 
 (defn rand-int
   "Uniform integer between lower (inclusive) and upper (exclusive)."
-  ([rng upper]
+  (^long [rng ^long upper]
    (-> (random/rand-double rng)
        (* upper)
        (Math/floor)
        (long)))
-  ([rng lower upper]
+  (^long [rng ^long lower ^long upper]
    (-> (random/rand-double rng)
        (* (- upper lower))
        (+ lower)

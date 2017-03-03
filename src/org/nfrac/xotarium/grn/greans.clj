@@ -74,27 +74,27 @@
 
 (defn random-element
   [rng type]
-  (let [[rng1 rng2 rng3] (random/split-n rng 3)]
+  (let [[r1 r2 r3] (random/split-n rng 3)]
     {::element-type type
-     ::sign (util/rand-nth rng1 [-1 1])
-     ::coords [(util/rand rng2 0 INIT_MAX_COORD)
-               (util/rand rng3 0 INIT_MAX_COORD)]}))
+     ::sign (util/rand-nth r1 [-1 1])
+     ::coords [(util/rand r2 0 INIT_MAX_COORD)
+               (util/rand r3 0 INIT_MAX_COORD)]}))
 
 (defn random-unit
   [rng]
-  (let [[rng1 rng2 rng3 rng4] (random/split-n rng 4)
-        npr (+ 1 (util/rand-int rng1 3))
-        ntf (+ 1 (util/rand-int rng2 3))]
-    (concat (map #(random-element % ::promoter) (random/split-n rng3 npr))
-            (map #(random-element % ::gene) (random/split-n rng4 ntf)))))
+  (let [[r1 r2 r3 r4] (random/split-n rng 4)
+        npr (+ 1 (util/rand-int r1 3))
+        ntf (+ 1 (util/rand-int r2 3))]
+    (concat (map #(random-element % ::promoter) (random/split-n r3 npr))
+            (map #(random-element % ::gene) (random/split-n r4 ntf)))))
 
 (defn random-grn
   [n-in n-out rng]
   (let [n-units (+ n-in n-out 1)
-        [rng rng*] (random/split rng)
-        es (mapcat #(random-unit %) (random/split-n rng* n-units))
+        [r1 r2] (random/split-n rng 2)
+        es (mapcat #(random-unit %) (random/split-n r1 n-units))
         n-tfs (count (filter #(= ::gene (::element-type %)) es))
-        tf-ids (util/shuffle rng (range n-tfs))]
+        tf-ids (util/shuffle r1 (range n-tfs))]
     {::elements es
      ::input-tfs (take n-in tf-ids)
      ::output-tfs (take n-out (drop n-in tf-ids))
@@ -296,44 +296,52 @@
   (s/double-in :min 0.0 :max 1.0 :NaN? false))
 
 (defn perturb-coords
-  [[x y] max-mag]
-  (let [angle (rand (* 2.0 Math/PI))
-        mag (rand max-mag)]
+  [[x y] max-mag rng]
+  (let [[r1 r2] (random/split-n rng 2)
+        angle (util/rand r1 (* 2.0 Math/PI))
+        mag (util/rand r2 max-mag)]
     [(+ x (* mag (Math/cos angle)))
      (+ y (* mag (Math/sin angle)))]))
 
 (defn element-mutate
-  [el max-mag cprob sprob tprob]
-  (cond-> el
-    (< (rand) cprob)
-    (update ::coords perturb-coords max-mag)
-    (< (rand) sprob)
-    (update ::sign * -1)
-    (< (rand) tprob)
-    (update ::element-type #(first (disj element-types %)))))
+  [el max-mag cprob sprob tprob rng]
+  (let [[r1 r2 r3 r4] (random/split-n rng 4)]
+    (cond-> el
+      (< (random/rand-double r1) cprob)
+      (update ::coords perturb-coords max-mag r2)
+      (< (random/rand-double r3) sprob)
+      (update ::sign * -1)
+      (< (random/rand-double r4) tprob)
+      (update ::element-type #(first (disj element-types %))))))
 
 (s/fdef element-mutate
         :args (s/cat :el ::element
                      :max-mag number?
                      :cprob ::probability
                      :sprob ::probability
-                     :tprob ::probability)
+                     :tprob ::probability
+                     :rng ::util/rng)
         :ret ::element)
 
 (defn mutate-elements*
-  [grn]
+  [grn rng]
   (let [{max-mag :mut-coord-mag
          cprob :mut-coord-prob
          sprob :mut-sign-prob
-         tprob :mut-type-prob} (::parameters grn)]
-    (update grn ::elements
-            (fn [es]
-              (map #(element-mutate % max-mag cprob sprob tprob) es)))))
+         tprob :mut-type-prob} (::parameters grn)
+         es (::elements grn)]
+    (assoc grn ::elements
+           (map (fn [e r]
+                  (element-mutate e max-mag cprob sprob tprob r))
+                es
+                (random/split-n rng (count es))))))
 
 (defn mutate-elements
-  [grn]
-  (loop [attempt 1]
-    (let [grn2 (mutate-elements* grn)]
+  [grn rng]
+  (loop [attempt 1
+         rng rng]
+    (let [[rng rng*] (random/split rng)
+          grn2 (mutate-elements* grn rng*)]
       (if (s/valid? ::grn grn2)
         grn2
         (if (>= attempt MUT_ATTEMPTS)
@@ -341,48 +349,50 @@
             (println "mutate-elements invalid after" MUT_ATTEMPTS "attempts.")
             (s/explain ::grn grn2)
             grn)
-          (recur (inc attempt)))))))
+          (recur (inc attempt) rng))))))
 
 (s/fdef mutate-elements
-        :args (s/cat :grn ::grn)
+        :args (s/cat :grn ::grn
+                     :rng ::util/rng)
         :ret ::grn)
 
 (defn genome-duplication
-  [grn]
+  [grn rng]
   (let [es (::elements grn)
-        i0 (rand-int (count es))
-        n (rand-int (- (count es) i0))
-        to (rand-int (inc (count es)))]
+        [r1 r2 r3] (random/split-n rng 3)
+        i0 (util/rand-int r1 (count es))
+        n (util/rand-int r2 1 (- (count es) i0))
+        to (util/rand-int r3 (inc (count es)))]
     (assoc grn ::elements
            (concat (take to es)
                    (take n (drop i0 es))
                    (drop to es)))))
 
 (s/fdef genome-duplication
-        :args (s/cat :grn ::grn)
+        :args (s/cat :grn ::grn
+                     :rng ::util/rng)
         :ret ::grn)
 
-(defn rand-int-in
-  [lo hi]
-  (+ lo (rand-int (- hi lo))))
-
 (defn genome-deletion*
-  [grn]
+  [grn rng]
   (let [es (::elements grn)
         min-possible-es (* 2 (+ 1 (count (::input-tfs grn))
                                 (count (::output-tfs grn))))
-        n (rand-int-in 1 (- (count es) min-possible-es))
-        i0 (rand-int (- (count es) n))]
+        [r1 r2] (random/split-n rng 2)
+        n (util/rand-int r1 1 (- (count es) min-possible-es))
+        i0 (util/rand-int r2 (- (count es) n))]
     (assoc grn ::elements
            (concat (take i0 es)
                    (drop (+ i0 n) es)))))
 
 (defn genome-deletion
-  [grn]
+  [grn rng]
   #_
   {:pre [(s/valid? ::grn grn)]}
-  (loop [attempt 1]
-    (let [grn2 (genome-deletion* grn)]
+  (loop [attempt 1
+         rng rng]
+    (let [[rng rng*] (random/split rng)
+          grn2 (genome-deletion* grn rng*)]
       (if (s/valid? ::grn grn2)
         grn2
         (if (>= attempt MUT_ATTEMPTS)
@@ -390,49 +400,64 @@
             (println "genome-deletion invalid after" MUT_ATTEMPTS "attempts.")
             (s/explain ::grn grn2)
             grn)
-          (recur (inc attempt)))))))
+          (recur (inc attempt) rng))))))
 
 (s/fdef genome-deletion
-        :args (s/cat :grn ::grn)
+        :args (s/cat :grn ::grn
+                     :rng ::util/rng)
         :ret ::grn)
 
 (defn genome-switch-io
-  [grn prob]
+  [grn prob rng]
   (let [ins (::input-tfs grn)
-        outs (::output-tfs grn)]
+        outs (::output-tfs grn)
+        [r1 r2 r3 r4] (random/split-n rng 4)]
     (assoc grn
-           ::input-tfs (map #(if (< (rand) prob) (rand-int 100) %)
-                            ins)
-           ::output-tfs (map #(if (< (rand) prob) (rand-int 100) %)
-                             outs))))
+           ::input-tfs (map (fn [id ra rb]
+                              (if (< (random/rand-double ra) prob)
+                                (util/rand-int rb 100)
+                                id))
+                            ins
+                            (random/split-n r1 (count ins))
+                            (random/split-n r2 (count ins)))
+           ::output-tfs (map (fn [id ra rb]
+                               (if (< (random/rand-double ra) prob)
+                                 (util/rand-int rb 100)
+                                 id))
+                             outs
+                             (random/split-n r3 (count outs))
+                             (random/split-n r4 (count outs))))))
 
 (s/fdef genome-switch-io
         :args (s/cat :grn ::grn
-                     :prob ::probability)
+                     :prob ::probability
+                     :rng ::util/rng)
         :ret ::grn)
 
 (defn mutate-structure
-  [grn]
-  (let [{:keys [switch-inout-prob dup-prob del-prob]} (::parameters grn)]
+  [grn rng]
+  (let [{:keys [switch-inout-prob dup-prob del-prob]} (::parameters grn)
+        [r1 r2 r3 r4 r5] (random/split-n rng 5)]
     (cond-> grn
-      (< (rand) dup-prob)
-      (genome-duplication)
-      (< (rand) del-prob)
-      (genome-deletion)
+      (< (random/rand-double r1) dup-prob)
+      (genome-duplication r2)
+      (< (random/rand-double r3) del-prob)
+      (genome-deletion r4)
       true
-      (genome-switch-io switch-inout-prob))))
+      (genome-switch-io switch-inout-prob r5))))
 
 (defn mutate
-  [grn]
-  (-> grn
-      (mutate-elements)
-      (mutate-structure)))
+  [grn rng]
+  (let [[r1 r2] (random/split-n rng 2)]
+    (-> grn
+        (mutate-elements r1)
+        (mutate-structure r2))))
 
 (defn crossover*
-  [g1 g2]
+  [g1 g2 rng]
   (let [es1 (::elements g1)
         es2 (::elements g2)
-        i1 (rand-int (count es1))
+        i1 (util/rand-int rng (count es1))
         ;; aligned (equal) crossover if no duplications / deletions
         i2 (mod i1 (count es2))]
     (assoc g1 ::elements
@@ -440,12 +465,14 @@
                    (drop i2 es2)))))
 
 (defn crossover
-  [g1 g2]
+  [g1 g2 rng]
   #_
   {:pre [(s/valid? ::grn g1)
          (s/valid? ::grn g2)]}
-  (loop [attempt 1]
-    (let [grn2 (crossover* g1 g2)]
+  (loop [attempt 1
+         rng rng]
+    (let [[rng rng*] (random/split rng)
+          grn2 (crossover* g1 g2 rng*)]
       (if (s/valid? ::grn grn2)
         grn2
         (if (>= attempt MUT_ATTEMPTS)
@@ -453,9 +480,10 @@
             (println "crossover invalid after" MUT_ATTEMPTS "attempts.")
             (s/explain ::grn grn2)
             g1)
-          (recur (inc attempt)))))))
+          (recur (inc attempt) rng))))))
 
 (s/fdef crossover
         :args (s/cat :g1 ::grn
-                     :g2 ::grn)
+                     :g2 ::grn
+                     :rng ::util/rng)
         :ret ::grn)

@@ -64,18 +64,16 @@
     {:cppn cppn
      :grn grn}))
 
-;; TODO rng
-
 (defn mutate
   [genome rng]
   (let [{:keys [grn cppn]} genome]
     (assoc genome
            :cppn cppn ; (cppn/mutate-general cppn) ;; temporarily static
-           :grn (grn/mutate grn))))
+           :grn (grn/mutate grn rng))))
 
 (defn crossover
   [g1 g2 rng]
-  (assoc g1 :grn (grn/crossover (:grn g1) (:grn g2))))
+  (assoc g1 :grn (grn/crossover (:grn g1) (:grn g2) rng)))
 
 (defn come-alive
   [world genome]
