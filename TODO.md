@@ -36,9 +36,6 @@
   - history markers?
   - topo analysis?
 
-* serialise genomes
-  - read in and play
-
 * record population measures over time
   - genome sizes
   - genetic diversity
