@@ -130,6 +130,25 @@
                                      :height cave-height
                                      :center [0 0]}))))
 
+(defn add-random-static-bars
+  [ground rng]
+  (let [hw cave-hw
+        hh cave-hh]
+    (reduce (fn [rng [sx sy]]
+              (let [[rng rng*] (random/split rng)
+                    [r1 r2 r3 r4] (random/split-n rng* 4)
+                    x0 (* (util/rand r1 (* 0.25 hw) hw) sx)
+                    x1 (* (util/rand r2 (* 0.25 hw) hw) sx)
+                    y0 (* (util/rand r3 (* 0.25 hh) hh) sy)
+                    y1 (* (util/rand r4 (* 0.25 hh) hh) sy)
+                    [ang mag] ((juxt v2d/v-angle v2d/v-mag)
+                               (v2d/v-sub [x1 y1] [x0 y0]))]
+                (lf/fixture! ground
+                             {:shape (lf/rod [x0 y0] ang mag (* 4 p-radius))})
+                rng))
+            rng
+            [[1 1] [1 -1] [-1 1] [-1 -1]])))
+
 (defn set-up-accretion
   [state rng]
   (let [world ^liquidfun$b2World (:world state)
@@ -155,7 +174,7 @@
                :color [255 255 255 255]
                :group wall-pg})
         its (.CalculateReasonableParticleIterations world (/ 1 60.0))
-        randsrc (atom (random/split-n rng (+ 1 (* 4 4) (* 4 5))))
+        randsrc (atom (random/split-n rng (+ 1 1 (* 4 5))))
         getrng! #(let [x (first @randsrc)]
                    (swap! randsrc rest)
                    x)
@@ -166,15 +185,7 @@
     (.DestroyParticlesInShape ps (lf/box (* p-radius 3) (* p-radius 3))
                               (doto (liquidfun$b2Transform.) (.SetIdentity)))
     ;; add some random shapes to accrete on
-    (doseq [[sx sy] [[1 1] [1 -1] [-1 1] [-1 -1]]]
-      (let [x0 (* (util/rand (getrng!) (* 0.25 hw) hw) sx)
-            x1 (* (util/rand (getrng!) (* 0.25 hw) hw) sx)
-            y0 (* (util/rand (getrng!) (* 0.25 hh) hh) sy)
-            y1 (* (util/rand (getrng!) (* 0.25 hh) hh) sy)
-            [ang mag] ((juxt v2d/v-angle v2d/v-mag)
-                       (v2d/v-sub [x1 y1] [x0 y0]))]
-        (lf/fixture! ground
-               {:shape (lf/rod [x0 y0] ang mag (* 4 p-radius))})))
+    (add-random-static-bars ground (getrng!))
     ;; add some more random shapes to disturb the gas flow
     (let [scaffolding (lf/body! world {:type :static})]
       (doseq [[sx sy] [[1 1] [1 -1] [-1 1] [-1 -1]]]

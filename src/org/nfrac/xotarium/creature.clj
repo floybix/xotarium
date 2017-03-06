@@ -10,7 +10,8 @@
             [quil.core :as quil :include-macros true]
             [quil.middleware]
             [clojure.pprint]
-            [clojure.spec :as s])
+            [clojure.spec :as s]
+            [clojure.test.check.random :as random])
   (:import (org.bytedeco.javacpp
             liquidfun$b2ContactListener
             liquidfun$b2ParticleBodyContact
@@ -399,6 +400,9 @@
         creature (make-creature world cppn)]
       (assoc bed/initial-state
              :world world
+             :ground (->> (lf/bodyseq world)
+                          (filter #(= :static (lf/body-type %)))
+                          (first))
              :particle-system ps
              :creature creature
              :particle-iterations 3
@@ -444,6 +448,7 @@
                   {:shape (lf/circle 0.25)
                    :restitution 0.1
                    :density 1.0})
+           (cave/add-random-static-bars (:ground state) (random/make-random 1))
            state)
       :g (do
            (.SetGravityScale ps (if (== 1.0 (.GetGravityScale ps))
