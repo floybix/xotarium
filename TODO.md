@@ -12,10 +12,6 @@
 
 
 
-* wall smell/signal: pre-calculated at every p-diameter
-  - distance to nearest wall.
-
-
 * global smell decay
 
 

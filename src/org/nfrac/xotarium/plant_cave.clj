@@ -6,6 +6,7 @@
             [org.nfrac.liquidfun.vec2d :as v2d]
             [org.nfrac.xotarium.util.algo-graph :as graph]
             [org.nfrac.xotarium.util :as util]
+            [org.nfrac.xotarium.proximity-field :as proxf]
             [quil.core :as quil :include-macros true]
             [quil.middleware]
             [clojure.spec :as s]
@@ -28,6 +29,7 @@
 (def cave-height 8.0)
 (def cave-hw (* cave-width 0.5))
 (def cave-hh (* cave-height 0.5))
+(def pad 0.1)
 (def min-group-size 5)
 (def flow-force 0.005)
 (def fix-radius (* p-radius 5))
@@ -103,7 +105,6 @@
   (let [world (lf/new-world)
         hw (* 0.5 cave-width)
         hh (* 0.5 cave-height)
-        pad 0.1
         ground (body! world {:type :static}
                       {:shape (lf/box (+ hw pad) pad [0 (- 0 hh pad)])}
                       {:shape (lf/box (+ hw pad) pad [0 (+ hh pad)])}
@@ -385,6 +386,24 @@
                     :shape (lf/box cave-hw cave-hh)})]
     (assoc state ::air-pg air-pg)))
 
+(defn do-colorize-air-by-proximity
+  [state]
+  ;; set alpha by proximity to walls. this is just for viz!
+  (let [ps ^liquidfun$b2ParticleSystem (:particle-system state)
+        air-pg (::air-pg state)
+        colb (.GetColorBuffer ps)
+        proxf (proxf/proximity-field (:world state)
+                                     [(- 0 cave-hw pad) (+ cave-hw pad)]
+                                     [(- 0 cave-hh) (+ cave-hh pad)]
+                                     (* 2 p-radius) 2.0)]
+    (doseq [i (particle-indices air-pg)]
+      (let [x (.GetParticlePositionX ps i)
+            y (.GetParticlePositionY ps i)
+            prox (proxf/proximity-score proxf x y)
+            coli (.position colb (long i))]
+        (.Set coli 128 128 (int (* 255 prox)) 255)))
+    state))
+
 (defn build-world
   []
   (->> (setup)
@@ -414,7 +433,7 @@
       :z (do-zap-small-groups state)
       :e (do-squishify state)
       :x (do-zap-detached state)
-      :a (do-add-air state)
+      :a (-> (do-add-air state) (do-colorize-air-by-proximity))
       :b (do
            (body! (:world state) {}
                   {:shape (lf/circle 0.25)
