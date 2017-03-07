@@ -113,10 +113,10 @@
              (draw state)
              state))
    :key-typed my-key-press
-   :mouse-pressed #(update % :current bed/mouse-pressed)
-   :mouse-released #(update % :current bed/mouse-released)
-   :mouse-dragged #(update % :current bed/mouse-dragged)
-   :mouse-wheel #(update % :current bed/mouse-wheel)
+   :mouse-pressed #(update % :current bed/mouse-pressed %2)
+   :mouse-released #(update % :current bed/mouse-released %2)
+   :mouse-dragged #(update % :current bed/mouse-dragged %2)
+   :mouse-wheel #(update % :current bed/mouse-wheel %2)
    :size [600 500]
    :features [:resizable]
    :middleware [quil.middleware/fun-mode]))

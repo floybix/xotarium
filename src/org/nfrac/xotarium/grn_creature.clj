@@ -68,7 +68,7 @@
   [genome rng]
   (let [{:keys [grn cppn]} genome]
     (assoc genome
-           :cppn cppn ; (cppn/mutate-general cppn) ;; temporarily static
+           :cppn (cppn/mutate-general cppn)
            :grn (grn/mutate grn rng))))
 
 (defn crossover

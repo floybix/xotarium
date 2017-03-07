@@ -34,12 +34,12 @@
 
 (def parameter-defaults
   {:crossover-prob 0.5
-   :population-size 4
-   :generations 3})
+   :population-size 18
+   :generations 8})
 
 (def sim-steps (* 60 5))
 
-(def xy-beh-resolution 0.1);; each multiple of this is a distinct behaviour.
+(def xy-beh-resolution 0.5);; each multiple of this is a distinct behaviour.
 
 (s/def ::parameters (s/keys))
 
@@ -237,6 +237,10 @@
               [rng rng*] (random/split rng)
               [next-popn ba] (generation popn beh-archive parameters rng*)]
           (println "gen" gi "behs:" (count ba))
+          (println "grn sizes:"
+                   (->> popn (map :genome) (map :grn) (map #(count (::grn/elements %))) (sort >)))
+          (println "cppn sizes:"
+                   (->> popn (map :genome) (map :cppn) (map #(count (cppn/edge-list %))) (sort >)))
           (recur next-popn
                  ba
                  (inc gi)

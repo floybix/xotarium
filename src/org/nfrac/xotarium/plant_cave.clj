@@ -397,22 +397,26 @@
                     :shape (lf/box cave-hw cave-hh)})]
     (assoc state ::air-pg air-pg)))
 
+(defn get-prox-field
+  [state]
+  (proxf/proximity-field (:world state)
+                         [(- 0 cave-hw pad) (+ cave-hw pad)]
+                         [(- 0 cave-hh) (+ cave-hh pad)]
+                         (* 2 p-radius) 2.0))
+
 (defn do-colorize-air-by-proximity
   [state]
   ;; set alpha by proximity to walls. this is just for viz!
   (let [ps ^liquidfun$b2ParticleSystem (:particle-system state)
         air-pg (::air-pg state)
         colb (.GetColorBuffer ps)
-        proxf (proxf/proximity-field (:world state)
-                                     [(- 0 cave-hw pad) (+ cave-hw pad)]
-                                     [(- 0 cave-hh) (+ cave-hh pad)]
-                                     (* 2 p-radius) 2.0)]
+        proxf (get-prox-field state)]
     (doseq [i (particle-indices air-pg)]
       (let [x (.GetParticlePositionX ps i)
             y (.GetParticlePositionY ps i)
-            prox (proxf/proximity-score proxf x y)
+            p (proxf/proximity-score proxf x y)
             coli (.position colb (long i))]
-        (.Set coli 128 128 (int (* 255 prox)) 255)))
+        (.Set coli 128 128 (int (* 255 p)) 255)))
     state))
 
 (defn build-world

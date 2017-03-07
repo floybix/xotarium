@@ -379,11 +379,13 @@
         min-possible-es (* 2 (+ 1 (count (::input-tfs grn))
                                 (count (::output-tfs grn))))
         [r1 r2] (random/split-n rng 2)
-        n (util/rand-int r1 1 (- (count es) min-possible-es))
-        i0 (util/rand-int r2 (- (count es) n))]
-    (assoc grn ::elements
-           (concat (take i0 es)
-                   (drop (+ i0 n) es)))))
+        max-possible-deletion (- (count es) 1 min-possible-es)]
+    (if (pos? max-possible-deletion)
+      (let [n (util/rand-int r1 1 (inc max-possible-deletion))
+            i0 (util/rand-int r2 (- (count es) n))]
+        (assoc grn ::elements
+              (concat (take i0 es)
+                      (drop (+ i0 n) es)))))))
 
 (defn genome-deletion
   [grn rng]
@@ -398,7 +400,6 @@
         (if (>= attempt MUT_ATTEMPTS)
           (do
             (println "genome-deletion invalid after" MUT_ATTEMPTS "attempts.")
-            (s/explain ::grn grn2)
             grn)
           (recur (inc attempt) rng))))))
 
