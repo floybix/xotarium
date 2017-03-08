@@ -29,6 +29,7 @@
 
 (def creature-width 1.8)
 (def creature-height 1.8)
+(def min-creature-particles 10)
 
 ;; interpretation:
 ;; if muscle is positive, express muscle.
@@ -39,20 +40,20 @@
 (def seed-cppn
   {:inputs #{:bias :x :y :d}
    :outputs #{:bone :muscle :angle :phase-off :factor-a :factor-b :factor-c}
-   :finals #{:angle}
+   :finals #{:muscle}
    :zerod #{}
    :nodes {:i0 :gaussian}
    :edges {:i0 {:d -1.0}
-           :muscle {:i0 0.5
-                    :x 1.0
-                    :bias -0.5}
-           :bone {:i0 0.5
-                  :bias -0.2}
+           :factor-a {:x 1.0}
+           :factor-b {:i0 1.0}
+           :factor-c {:i0 0.5
+                      :x 1.0
+                      :bias -0.5}
            :phase-off {:x 1.0}
            :angle {:bias 0.5}
-           :factor-a {:x 1.0}
-           :factor-b {:y 1.0}
-           :factor-c {:muscle 1.0}}})
+           :bone {:i0 0.5
+                  :bias -0.2}
+           :muscle {:factor-c 1.0}}})
 
 (defn hex-neighbours
   "Returns hexagonal coordinates linked to their immediate neighbours.
@@ -373,17 +374,22 @@
         p-radius (.GetRadius ps)
         cppn-fn (morpho-cppn-fn cppn)
         mdata (morpho-data cppn-fn p-radius [0 0] [creature-width creature-height])
-        coords (mapcat :coords mdata)]
-    (dotimes [i 60]
-      (clear-push world coords)
-      (lf/step! world (/ 1 60.0) 8 3 3))
-    (let [pgm (morpho-construct-particle-groups mdata ps)
-          pp (morpho-particle-parameters mdata ps pgm)
-          tri-p (morpho-triad-parameters ps pp)]
-      {:cppn cppn
-       :groups pgm
-       :particle-params pp
-       :triad-params tri-p})))
+        coords (mapcat :coords mdata)
+        valid-cre? (>= (count coords) min-creature-particles)]
+    (if valid-cre?
+      (do
+        (dotimes [i 60]
+          (clear-push world coords)
+          (lf/step! world (/ 1 60.0) 8 3 3))
+        (let [pgm (morpho-construct-particle-groups mdata ps)
+              pp (morpho-particle-parameters mdata ps pgm)
+              tri-p (morpho-triad-parameters ps pp)]
+          {:cppn cppn
+           :groups pgm
+           :particle-params pp
+           :triad-params tri-p}))
+      ;; invalid creature
+      nil)))
 
 (defn destroy-creature
   [creature]
@@ -420,8 +426,9 @@
                         phase (mod (* time freq) (* 2.0 Math/PI))
                         phase-off (:phase-off params)]
                     (Math/sin (+ phase phase-off))))]
-    (creature-flex ps (:triad-params creature) work-fn)
-    (groups-restore-color ps (:muscle (:groups creature)) [255 0 0 255])
+    (when creature
+      (creature-flex ps (:triad-params creature) work-fn)
+      (groups-restore-color ps (:muscle (:groups creature)) [255 0 0 255]))
     state))
 
 (defn step

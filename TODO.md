@@ -18,6 +18,11 @@
 
 
 
+* cppn mutate repeatably
+
+
+
+
 # Evolution
 
 * behavioural distance?
@@ -58,4 +63,5 @@
   - fixed motions
     - horiz / vert alternation
     - circling
+    - homing - directly towards creature
 

@@ -50,12 +50,13 @@
     (case (:key event)
       :n (let [i (:genome-index state)
                i+ (inc i)
-               genome (get (:genomes state) i+)]
+               genome (get (:genomes state) i+)
+               seed (:seed state)]
            (when-not genome
              (System/exit 0))
            (assoc state
                   :genome-index i+
-                  :current (grncre/setup genome)))
+                  :current (grncre/setup genome seed)))
       :b (do
            (body! (:world s) {}
                   {:shape (lf/circle 0.25)
@@ -75,14 +76,15 @@
 
 (defn setup
   [file]
-  (let [ba (from-file file)
-        genomes (->> (map :representative (vals ba))
+  (let [{:keys [beh-archive seed]} (from-file file)
+        genomes (->> (map :representative (vals beh-archive))
                      (sort-by :generation)
                      (vec))
         genome-index 0]
-    {:genomes genomes
+    {:seed seed
+     :genomes genomes
      :genome-index genome-index
-     :current (grncre/setup (get genomes genome-index))}))
+     :current (grncre/setup (get genomes genome-index) seed)}))
 
 (defn draw
   [state]

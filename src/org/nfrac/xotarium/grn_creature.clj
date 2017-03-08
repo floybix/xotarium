@@ -4,6 +4,7 @@
             [org.nfrac.xotarium.cppn-compile :as cc]
             [org.nfrac.xotarium.grn.greans :as grn]
             [org.nfrac.xotarium.plant-cave :as cave]
+            [org.nfrac.xotarium.proximity-field :as proxf]
             [org.nfrac.liquidfun.testbed :as bed]
             [org.nfrac.liquidfun.core :as lf :refer [body! joint!
                                                      particle-system!]]
@@ -33,16 +34,27 @@
                   oscillator
                   factor-a
                   factor-b
-                  factor-c])
-#_[carn-touch
+                  factor-c
+                  wall-touch
+                  wall-smell
+                  ])
+#_[self-touch
+   carn-touch
    herb-touch
    plant-touch
-   wall-touch
-   self-touch
+   ;wall-touch
    carn-smell
    herb-smell
    plant-smell
-   wall-smell
+   ;wall-smell
+   vel-mag
+   vel-ang
+   body-vel-mag
+   body-vel-ang
+   body-accel-mag
+   body-accel-ang
+   body-angle
+   body-ang-vel
    message-a
    message-b
    message-c]
@@ -77,31 +89,29 @@
 
 (defn come-alive
   [world genome]
-  (let [{:keys [grn cppn]} genome
-        creature-body (cre/make-creature world cppn)
-        tri-p (:triad-params creature-body)
-        cell-form (grn/grn->cell grn)
-        tri-concs (zipmap (keys tri-p)
-                          (repeat (::grn/concs cell-form)))]
-    (assoc creature-body
-           :tri-concs tri-concs
-           :grn-cell cell-form
-           :grn grn)))
+  (when-let [creature-body (cre/make-creature world (:cppn genome))]
+    (let [grn (:grn genome)
+          tri-p (:triad-params creature-body)
+          cell-form (grn/grn->cell grn)
+          tri-concs (zipmap (keys tri-p)
+                            (repeat (::grn/concs cell-form)))]
+      (assoc creature-body
+            :tri-concs tri-concs
+            :grn-cell cell-form
+            :grn grn))))
 
 (defn setup
-  [genome]
+  [genome seed]
   (let [;world (cave/build-world)
-        world (-> (cave/setup) (cave/do-add-air) :world)
-        ps ^liquidfun$b2ParticleSystem (first (lf/particle-sys-seq world))
-        creature (come-alive world genome)]
-      (assoc bed/initial-state
-             :world world
-             :particle-system ps
-             :creature creature
-             :particle-iterations 3
-             :camera (bed/map->Camera {:width cave/cave-width
-                                       :height cave/cave-height
-                                       :center [0 0]}))))
+        state (-> (cave/setup)
+                  (cave/do-add-air))
+        _ (cave/add-random-static-bars (:ground state) (random/make-random seed))
+        pf (cave/get-prox-field (:world state))
+        creature (come-alive (:world state) genome)]
+    (when creature
+      (assoc state
+            :wall-prox-field pf
+            :creature creature))))
 
 (defn post-step
   [state]
@@ -114,9 +124,30 @@
         time (:time state)
         freq 6.0
         phase (mod (* time freq) (* 2.0 Math/PI))
+        pf (:wall-prox-field state)
+        air-pg ^liquidfun$b2ParticleGroup (::cave/air-pg state)
+        bc (let [n (.GetBodyContactCount ps)]
+             (loop [bc (.GetBodyContacts ps)
+                    bci 0
+                    m (transient {})]
+               (if (< bci n)
+                 (let [i (.index bc)
+                       body (.body bc)
+                       bc (.position bc (inc bci))]
+                   (if (.ContainsParticle air-pg i)
+                     (recur bc (inc bci) m)
+                     (recur bc (inc bci)
+                            (assoc! m i body))))
+                 (persistent! m))))
         new-concs (persistent!
                    (reduce-kv (fn [m handles concs]
                                 (let [params (get tri-p handles)
+                                      p-i (.GetIndex ^liquidfun$b2ParticleHandle
+                                                     (first handles))
+                                      x (.GetParticlePositionX ps p-i)
+                                      y (.GetParticlePositionY ps p-i)
+                                      wall-smell (proxf/proximity-score pf x y)
+                                      wall-touch (if (bc p-i) 1.0 0.0)
                                       cell (assoc cell-form ::grn/concs concs)
                                       phase-off (:phase-off params)
                                       osc (if (pos? (Math/sin (+ phase phase-off)))
@@ -125,7 +156,10 @@
                                           osc
                                           (:factor-a params)
                                           (:factor-b params)
-                                          (:factor-c params)]
+                                          (:factor-c params)
+                                          wall-touch
+                                          wall-smell
+                                          ]
                                       nc (::grn/concs
                                           (grn/step cell ic dt))]
                                   (assoc! m handles nc)))
@@ -169,13 +203,12 @@
 
 (defn run
   [seed & args]
-  (let [rng (if seed
-              (random/make-random (Long. (str seed)))
-              (random/make-random))]
+  (let [seed (Long. (str seed))
+        rng (random/make-random seed)]
     (quil/sketch
      :title "Xotarium"
      :host "liquidfun"
-     :setup #(setup (random-genome rng))
+     :setup #(setup (random-genome rng) seed)
      :update (fn [s] (if (:paused? s) s (step s)))
      :draw #(if (zero? (mod (quil/frame-count) 2)) (bed/draw % true) %)
      :key-typed my-key-press

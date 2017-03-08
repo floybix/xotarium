@@ -34,12 +34,12 @@
 
 (def parameter-defaults
   {:crossover-prob 0.5
-   :population-size 18
+   :population-size 12
    :generations 8})
 
 (def sim-steps (* 60 5))
 
-(def xy-beh-resolution 0.5);; each multiple of this is a distinct behaviour.
+(def xy-beh-resolution 0.4);; each multiple of this is a distinct behaviour.
 
 (s/def ::parameters (s/keys))
 
@@ -74,25 +74,26 @@
      :cent-y (int (/ y xy-beh-resolution))}))
 
 (defn behaviour-measures
-  [genome]
-  (let [state-ht (->> (grncre/setup genome)
-                      (iterate grncre/step)
-                      (drop (quot sim-steps 2))
-                      (first))
-        beh-ht (point-in-time-measures state-ht)
-        ;; TODO don't hold on to your head
-        state-ft (->> state-ht
-                      (iterate grncre/step)
-                      (drop (quot sim-steps 2))
-                      (first))
-        beh-ft (point-in-time-measures state-ft)]
-    ;; combine the maps from each point in time, set unique keys
-    (reduce (fn [m [time-k beh]]
-              (let [ks (map vector (repeat time-k) (keys beh))]
-                (merge m (zipmap ks (vals beh)))))
-            {}
-            [[:ht beh-ht]
-             [:ft beh-ft]])))
+  [genome seed]
+  (when-let [state (grncre/setup genome seed)]
+    (let [state-ht (->> state
+                        (iterate grncre/step)
+                        (drop (quot sim-steps 2))
+                        (first))
+          beh-ht (point-in-time-measures state-ht)
+          ;; TODO don't hold on to your head
+          state-ft (->> state-ht
+                        (iterate grncre/step)
+                        (drop (quot sim-steps 2))
+                        (first))
+          beh-ft (point-in-time-measures state-ft)]
+      ;; combine the maps from each point in time, set unique keys
+      (reduce (fn [m [time-k beh]]
+                (let [ks (map vector (repeat time-k) (keys beh))]
+                  (merge m (zipmap ks (vals beh)))))
+              {}
+              [[:ht beh-ht]
+               [:ft beh-ft]]))))
 
 (s/def ::behaviour
   (s/keys))
@@ -108,10 +109,10 @@
                    ::beh-freq]))
 
 (defn eval-popn
-  [popn behaviour-archive]
+  [popn behaviour-archive seed]
   ;; TODO: parallelize?
   (let [bpopn (map (fn [indiv]
-                     (let [beh (behaviour-measures (:genome indiv))]
+                     (let [beh (behaviour-measures (:genome indiv) seed)]
                        (println "    beh=" beh)
                        (assoc indiv :behaviour beh)))
                    popn)
@@ -123,15 +124,23 @@
                      (if-let [indiv (first indivs)]
                        (let [beh (:behaviour indiv)
                              beh-freq (get-in beh-archive [beh :count] 0)
-                             nov? (zero? beh-freq)]
+                             nov? (zero? beh-freq)
+                             bad? (nil? beh)]
                          (recur (rest indivs)
                                 (inc i)
-                                (if nov?
+                                (cond
+                                  bad?
+                                  beh-archive
+                                  nov?
                                   (assoc beh-archive beh
                                          {:count 1
                                           :representative (:genome indiv)})
+                                  :else
                                   (update-in beh-archive [beh :count] inc))
-                                (conj epopn (assoc indiv :beh-freq beh-freq))))
+                                (conj epopn
+                                      (if bad?
+                                        indiv
+                                        (assoc indiv :beh-freq beh-freq)))))
                        ;; done
                        [epopn beh-archive]))
         ]
@@ -139,7 +148,8 @@
 
 (s/fdef eval-popn
         :args (s/cat :popn (s/every ::indiv :min-count 2)
-                     :ba ::behaviour-archive)
+                     :ba ::behaviour-archive
+                     :seed int?)
         :ret (s/cat :epopn (s/every ::indiv-evald :min-count 2)
                     :ba ::behaviour-archive))
 
@@ -153,7 +163,11 @@
   (let [n (count epopn)
         {:keys []} parameters
         wpopn (map (fn [indiv]
-                     (assoc indiv :weight (/ 1.0 (+ 1 (:beh-freq indiv)))))
+                     (let [w (if-let [freq (:beh-freq indiv)]
+                               (/ 1.0 (+ 1 (:beh-freq indiv)))
+                               ;; invalid, set weight to zero
+                               0.0)]
+                       (assoc indiv :weight w)))
                    epopn)
         sumw (reduce + (map :weight wpopn))]
     (loop [indivs (sort-by :weight > wpopn)
@@ -205,8 +219,8 @@
         :ret (s/every ::indiv))
 
 (defn generation
-  [popn beh-archive parameters rng]
-  (let [[epopn ba] (eval-popn popn beh-archive)
+  [popn beh-archive parameters seed rng]
+  (let [[epopn ba] (eval-popn popn beh-archive seed)
         seln (selection epopn parameters)
         next-popn (next-generation seln ba rng parameters)]
     [next-popn ba]))
@@ -218,43 +232,58 @@
 
 (defn from-file
   [file]
-  (with-open [r (io/reader file)]
+  (with-open [r (java.io.PushbackReader. (io/reader file))]
     (read r)))
 
+(defn evolve-continue
+  [rng seed parameters popn beh-archive]
+  (loop [popn popn
+         beh-archive beh-archive
+         gi 0
+         rng rng]
+    (if (< gi (:generations parameters))
+      ;; this genereration tag will end up in the behaviour archive
+      (let [popn (map #(assoc-in % [:genome :generation] gi) popn)
+            [rng rng*] (random/split rng)
+            [next-popn ba] (generation popn beh-archive parameters seed rng*)]
+        (println "gen" gi "behs:" (count ba))
+        (println "grn sizes:"
+                 (->> popn (map :genome) (map :grn) (map #(count (::grn/elements %))) (sort >)))
+        (println "cppn sizes:"
+                 (->> popn (map :genome) (map :cppn) (map #(count (cppn/edge-list %))) (sort >)))
+        (recur next-popn
+               ba
+               (inc gi)
+               rng))
+      ;; done
+      {:beh-archive beh-archive
+       :popn popn
+       :seed seed})))
+
 (defn evolve
-  [rng parameters]
+  [rng seed parameters]
   (let [n-popn (:population-size parameters)
         [rng rng*] (random/split rng)]
-    (loop [popn (map (fn [rng]
-                       {:genome (grncre/random-genome rng)})
-                     (random/split-n rng* n-popn))
-           beh-archive {}
-           gi 0
-           rng rng]
-      (if (< gi (:generations parameters))
-        ;; this genereration tag will end up in the behaviour archive
-        (let [popn (map #(assoc-in % [:genome :generation] gi) popn)
-              [rng rng*] (random/split rng)
-              [next-popn ba] (generation popn beh-archive parameters rng*)]
-          (println "gen" gi "behs:" (count ba))
-          (println "grn sizes:"
-                   (->> popn (map :genome) (map :grn) (map #(count (::grn/elements %))) (sort >)))
-          (println "cppn sizes:"
-                   (->> popn (map :genome) (map :cppn) (map #(count (cppn/edge-list %))) (sort >)))
-          (recur next-popn
-                 ba
-                 (inc gi)
-                 rng))
-        ;; done
-        beh-archive))))
+    (evolve-continue rng seed parameters
+                     (map (fn [rng]
+                            {:genome (grncre/random-genome rng)})
+                          (random/split-n rng* n-popn))
+                     {})))
 
 (defn run
   [seed & args]
-  (let [rng (if seed
-              (random/make-random (Long. (str seed)))
-              (random/make-random))]
-    (->> (evolve rng parameter-defaults)
+  (let [seed (Long. (str seed))
+        rng (random/make-random seed)]
+    (->> (evolve rng seed parameter-defaults)
          (to-file (str "beh-archive-seed" seed ".edn")))))
+
+(defn run-more
+  [file run-seed & args]
+  (let [run-seed (Long. (str run-seed))
+        {:keys [beh-archive popn seed]} (from-file file)
+        rng (random/make-random (Long. (str seed)))]
+    (->> (evolve rng run-seed parameter-defaults)
+         (to-file (str file "-more-" run-seed)))))
 
 (comment
   (require '[org.nfrac.xotarium.evo :as evo] :reload)

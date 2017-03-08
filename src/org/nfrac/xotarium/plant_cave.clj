@@ -398,8 +398,8 @@
     (assoc state ::air-pg air-pg)))
 
 (defn get-prox-field
-  [state]
-  (proxf/proximity-field (:world state)
+  [world]
+  (proxf/proximity-field world
                          [(- 0 cave-hw pad) (+ cave-hw pad)]
                          [(- 0 cave-hh) (+ cave-hh pad)]
                          (* 2 p-radius) 2.0))
@@ -410,7 +410,7 @@
   (let [ps ^liquidfun$b2ParticleSystem (:particle-system state)
         air-pg (::air-pg state)
         colb (.GetColorBuffer ps)
-        proxf (get-prox-field state)]
+        proxf (get-prox-field (:world state))]
     (doseq [i (particle-indices air-pg)]
       (let [x (.GetParticlePositionX ps i)
             y (.GetParticlePositionY ps i)
