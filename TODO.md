@@ -17,12 +17,6 @@
 
 
 
-
-* cppn mutate repeatably
-
-
-
-
 # Evolution
 
 * behavioural distance?
@@ -44,8 +38,11 @@
   - genetic novelty
   - behavioural novelty
 
+* attach mutation parameters to individuals, and evolve them
+  - initially, large mutations should be favoured; later, smaller
 
 * transit serialisation
+
 
 
 ## Behaviour

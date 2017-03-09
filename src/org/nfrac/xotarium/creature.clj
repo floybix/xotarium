@@ -469,7 +469,7 @@
            (destroy-creature (:creature state))
            (assoc state :creature
                   (make-creature (:world state)
-                                 (cppn/mutate-general seed-cppn))))
+                                 (cppn/mutate-with-perturbation seed-cppn {}))))
       ;; otherwise pass on to testbed
       (bed/key-press state event))))
 

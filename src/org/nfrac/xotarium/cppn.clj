@@ -1,7 +1,15 @@
 (ns org.nfrac.xotarium.cppn
   (:require [org.nfrac.xotarium.util.algo-graph :as graph]
+            [org.nfrac.xotarium.util :as util]
             [clojure.spec :as s]
-            [clojure.spec.gen :as gen]))
+            [clojure.spec.gen :as gen]
+            [clojure.test.check.random :as random]))
+
+(def parameter-defaults
+  {:add-node-prob 0.1
+   :add-conn-prob 0.2
+   :rewire-conn-prob 0.2
+   :weight-perturbation 0.5})
 
 ;; network topology is defined by dependencies between nodes.
 ;; so all non-input nodes must have at least one input edge.
@@ -99,61 +107,51 @@
           cppn
           (map vector (edge-list cppn) ws)))
 
-(defn use-indices
-  [cppn use-node]
-  (keep-indexed (fn [i [to from]]
-                  (when (or (nil? use-node)
-                            (= to use-node))
-                        i))
-                (edge-list cppn)))
-
 (defn rand-skew
-  [max power]
-  (-> (rand (Math/pow max (/ 1 power)))
+  [rng max power]
+  (-> (util/rand rng (Math/pow max (/ 1 power)))
       (Math/pow power)))
 
-(defn rand-sign [] (if (pos? (rand-int 2)) 1 -1))
+(defn rand-sign [rng] (if (pos? (util/rand-int rng 2)) 1 -1))
 
-(defn rand-init-weight [] (* (rand-skew 3 2) (rand-sign)))
-
-(def node-prefixes (seq "nmpqrstbcdefgh"))
+(defn rand-init-weight [rng]
+  (let [[r1 r2] (random/split rng)]
+    (* (rand-skew r1 3 2) (rand-sign r2))))
 
 (defn gen-node-id
-  "Scan through integer range until find usable id.
-  Instead of gensym so as to keep the ids small < 100
-  and avoid collisions with externally provided nodes."
-  [cppn]
-  (loop [pres node-prefixes
-         i 0]
-    (let [pre (first pres)
-          k (keyword (str pre i))]
-      (if (>= i 100)
-        (recur (rest pres) 0)
-        (if (contains? (:nodes cppn) k)
-          (recur pres (inc i))
-          k)))))
+  [rng]
+  (->> (random/rand-long rng)
+       (format "%h")
+       (keyword)))
 
 (defn mutate-add-node-before
-  [cppn before]
-  (let [type (rand-nth (seq auto-node-types))
-        id (gen-node-id cppn)
-        [from1 w1] (rand-nth (seq (get-in cppn [:edges before])))]
+  [cppn before rng]
+  (let [[r1 r2 r3 r4 r5] (random/split-n rng 5)
+        type (util/rand-nth r1 (seq auto-node-types))
+        id (gen-node-id r5)
+        [from1 w1] (util/rand-nth r2 (seq (get-in cppn [:edges before])))
+        w2 (rand-init-weight r3)
+        w3 (rand-init-weight r4)]
     (-> cppn
         (update :nodes assoc id type)
-        (update :edges assoc id {from1 (rand-init-weight)})
+        (update :edges assoc id {from1 w2})
         ;(update-in [:edges before] dissoc from1)
-        (update-in [:edges before] assoc id (rand-init-weight)))))
+        (update-in [:edges before] assoc id w3))))
 
 (defn mutate-add-node
-  [cppn]
-  (mutate-add-node-before cppn (rand-nth (keys (:edges cppn)))))
+  [cppn rng]
+  (let [[rng rng*] (random/split rng)
+        before (util/rand-nth rng* (keys (:edges cppn)))]
+    (mutate-add-node-before cppn before rng)))
 
 (defn mutate-append-node
-  [cppn]
-  (mutate-add-node-before cppn (rand-nth (seq (:outputs cppn)))))
+  [cppn rng]
+  (let [[rng rng*] (random/split rng)
+        before (util/rand-nth rng* (seq (:outputs cppn)))]
+    (mutate-add-node-before cppn before rng)))
 
 (defn mutate-add-conn-to
-  [cppn to-node]
+  [cppn to-node rng]
   (let [to-edges (get (:edges cppn) to-node)
         candidates (remove (set (concat (keys to-edges)
                                         (downstream cppn to-node)
@@ -161,21 +159,25 @@
                            (concat (keys (:nodes cppn))
                                    (:inputs cppn)
                                    (:outputs cppn))) ;; outputs ok if not final
-        w (- (rand (* 2.0 2)) 2.0)]
+        [r1 r2] (random/split-n rng 2)
+        w (util/rand r1 -2.0 2.0)]
     (if (seq candidates)
       (-> cppn
-          (assoc-in [:edges to-node (rand-nth (seq candidates))] w))
+          (assoc-in [:edges to-node (util/rand-nth r2 (seq candidates))] w))
       cppn)))
 
 (defn mutate-add-conn
-  [cppn]
-  (mutate-add-conn-to cppn (rand-nth (keys (:edges cppn)))))
+  [cppn rng]
+  (let [[r1 r2] (random/split-n rng 2)
+        from (util/rand-nth r1 (keys (:edges cppn)))]
+    (mutate-add-conn-to cppn from r2)))
 
 (defn mutate-rewire-conn
-  [cppn]
-  (let [[to-node to-edges] (rand-nth (seq (:edges cppn)))
-        [rm-from old-w] (rand-nth (seq to-edges))
-        cppn2 (mutate-add-conn-to cppn to-node)
+  [cppn rng]
+  (let [[r1 r2 r3] (random/split-n rng 3)
+        [to-node to-edges] (util/rand-nth r1 (seq (:edges cppn)))
+        [rm-from old-w] (util/rand-nth r2 (seq to-edges))
+        cppn2 (mutate-add-conn-to cppn to-node r3)
         new-from (-> (apply dissoc (get-in cppn2 [:edges to-node])
                             (keys to-edges))
                      keys first)]
@@ -230,29 +232,40 @@
   (+ from (* z (- to from))))
 
 (defn rand-weight
-  [from-w perturbation]
-  (let [global-w (rand-init-weight)
+  [from-w perturbation rng]
+  (let [global-w (rand-init-weight rng)
         locally (+ from-w (* perturbation 0.5 global-w))
         globally (interp from-w global-w (* perturbation perturbation))]
     (+ (* perturbation globally)
        (* (- 1.0 perturbation) locally))))
 
 (defn randomise-weights
-  [cppn perturbation use-node]
+  [cppn perturbation rng]
   (let [ws (cppn-weights cppn)
-        use-is (use-indices cppn use-node)
-        new-ws (reduce (fn [ws i]
-                         (assoc ws i (rand-weight (nth ws i) perturbation)))
-                       ws
-                       use-is)]
+        new-ws (mapv (fn [w r]
+                       (rand-weight w perturbation r))
+                     ws
+                     (random/split-n rng (count ws)))]
     (set-cppn-weights cppn new-ws)))
 
-(defn mutate-general
-  [cppn]
-  (cond
-    (< (rand) 0.33)
-    (mutate-add-node cppn)
-    (< (rand) 0.5)
-    (mutate-add-conn cppn)
-    :else
-    (mutate-rewire-conn cppn)))
+(defn mutate-structure
+  [cppn rng parameters]
+  (let [{:keys [add-node-prob
+                add-conn-prob
+                rewire-conn-prob]} parameters
+        [r1 r2 r3 r4 r5 r6] (random/split-n rng 6)]
+    (cond-> cppn
+      (< (random/rand-double r1) add-node-prob)
+      (mutate-add-node r2)
+      (< (random/rand-double r3) add-conn-prob)
+      (mutate-add-conn r4)
+      (< (random/rand-double r5) rewire-conn-prob)
+      (mutate-rewire-conn r6))))
+
+(defn mutate-with-perturbation
+  [cppn rng parameters]
+  (let [parameters (merge parameter-defaults parameters)
+        {:keys [weight-perturbation]} parameters
+        [rng rng*] (random/split rng)]
+    (-> (mutate-structure cppn rng* parameters)
+        (randomise-weights weight-perturbation rng))))
