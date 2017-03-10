@@ -88,6 +88,6 @@
 (defn proximity-score
   [prox-field x y]
   (let [{:keys [pf x-lo y-lo stride]} prox-field
-        ix (int (Math/round (/ (- x x-lo) stride)))
-        iy (int (Math/round (/ (- y y-lo) stride)))]
+        ix (int (/ (- x x-lo) stride))
+        iy (int (/ (- y y-lo) stride))]
     (get pf [ix iy] 0.0)))

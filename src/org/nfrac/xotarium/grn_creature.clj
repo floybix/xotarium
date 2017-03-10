@@ -117,8 +117,8 @@
   [state]
   (let [ps ^liquidfun$b2ParticleSystem (:particle-system state)
         creature (:creature state)
-        my-muscles (set (:muscle (:groups creature)))
-        my-bones (set (:bone (:groups creature)))
+        my-muscles (:muscle (:groups creature))
+        my-bones (:bone (:groups creature))
         tri-p (:triad-params creature)
         cell-form (:grn-cell creature)
         tri-concs (:tri-concs creature)
@@ -144,17 +144,18 @@
                       (recur bc (inc bci)
                              (assoc! bcm i body))))
                   (persistent! bcm))))
-        pgbuf (.GetGroupBuffer ps)
+        ;; note: do not use GetGroupBuffer, it is slower than ContainsParticle
         colbuf (.GetColorBuffer ps)
         pcm (let [n (.GetContactCount ps)
                   pkind (fn [i]
-                          (let [pg (liquidfun$b2ParticleGroup. (.get pgbuf (long i)))]
+                          (if (.ContainsParticle air-pg i)
+                            :air
                             (cond
-                              (= pg air-pg)
-                              :air
-                              (contains? my-muscles pg)
+                              (some #(.ContainsParticle ^liquidfun$b2ParticleGroup % i)
+                                    my-muscles)
                               :self-muscle
-                              (contains? my-bones pg)
+                              (some #(.ContainsParticle ^liquidfun$b2ParticleGroup % i)
+                                    my-bones)
                               :self-bone
                               :else
                               :other)))

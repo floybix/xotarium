@@ -197,7 +197,7 @@
         :ret ::cell)
 
 (defn promoter-activation
-  [pr-id influences concs]
+  ^double [pr-id influences concs]
   (reduce-kv (fn [a tf-id infl]
                (let [c (get concs tf-id)]
                  (+ a (* c infl))))
@@ -221,25 +221,33 @@
        conc)))
 
 (defn vector-merge
-  [v kvs]
-  (persistent!
-   (reduce-kv assoc! (transient v) kvs)))
+  [v is xs]
+  (let [n (count v)]
+    (loop [is is
+           xs xs
+           v (transient v)]
+      (if-let [i (first is)]
+        (let [x (first xs)
+              i (mod i n)]
+          (recur (rest is)
+                 (rest xs)
+                 (assoc! v i x)))
+        (persistent! v)))))
 
 (defn step
   [cell input-concs dt]
   (let [dt (double dt)
         n-tfs (count (::concs cell))
-        concs (vector-merge (::concs cell)
-                            (zipmap (map #(mod % n-tfs) (::input-tfs cell))
-                                    input-concs))
+        concs (vector-merge (::concs cell) (::input-tfs cell) input-concs)
         influences (::influences cell)
         unit-promoters (::unit-promoters cell)
         unit-tfs (::unit-tfs cell)
         n-units (count unit-tfs)]
     (loop [unit-i 0
+           unit-promoters (seq unit-promoters)
            new-concs (transient concs)]
       (if (< unit-i n-units)
-        (let [pr-ids (get unit-promoters unit-i)
+        (let [pr-ids (first unit-promoters)
               unit-a (max 0.0
                           (transduce
                            (map #(promoter-activation % influences concs))
@@ -252,6 +260,7 @@
                           new-concs
                           tf-ids)]
           (recur (inc unit-i)
+                 (rest unit-promoters)
                  ncs))
         ;; done
         (assoc cell ::concs (persistent! new-concs))))))
