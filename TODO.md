@@ -1,4 +1,17 @@
 
+* perf
+  - step fn in java/C?
+
+* creature location is center over all particles (not groups)
+
+* viz inputs to GRN cells / over time
+
+* test response of GRNs to various inputs
+  - (vs a defined reference state)
+
+
+
+
 * apply gravity force to creatures (not air)
 
 * larger / composite caves
@@ -47,18 +60,9 @@
 
 ## Behaviour
 
-(what is novelty - what to select)
+* set of plant cells eaten
 
-* final position
-  - or path
+* energy balance / survival time
 
-* set of locations reached
-
-* number of plant cells eaten
-
-* introduce predators/hazards
-  - fixed motions
-    - horiz / vert alternation
-    - circling
-    - homing - directly towards creature
+* coevolution of carnivores and herbivores
 

@@ -19,6 +19,7 @@
             liquidfun$b2ContactListener
             liquidfun$b2ParticleBodyContact
             liquidfun$b2ParticleContact
+            liquidfun$b2ParticleColor
             liquidfun$b2World
             liquidfun$b2Body
             liquidfun$b2Transform
@@ -30,6 +31,9 @@
             liquidfun$b2ParticleDef
             liquidfun$b2QueryCallback)))
 
+(def max-sensed-velocity 2.0)
+
+;; this list should match the args passed to grn/step!
 (def beh-inputs '[bias
                   oscillator
                   factor-a
@@ -37,25 +41,18 @@
                   factor-c
                   wall-touch
                   wall-smell
+                  self-touch
+                  other-touch
+                  red-smell
+                  green-smell
+                  blue-smell
+                  pressure
+                  up-vel
+                  down-vel
+                  right-vel
+                  left-vel
                   ])
-#_[self-touch
-   carn-touch
-   herb-touch
-   plant-touch
-   ;wall-touch
-   carn-smell
-   herb-smell
-   plant-smell
-   ;wall-smell
-   vel-mag
-   vel-ang
-   body-vel-mag
-   body-vel-ang
-   body-accel-mag
-   body-accel-ang
-   body-angle
-   body-ang-vel
-   message-a
+#_[message-a
    message-b
    message-c]
 
@@ -114,10 +111,14 @@
             :wall-prox-field pf
             :creature creature))))
 
+(defn clamp [x] (-> (double x) (max 0.0) (min 1.0)))
+
 (defn post-step
   [state]
   (let [ps ^liquidfun$b2ParticleSystem (:particle-system state)
         creature (:creature state)
+        my-muscles (set (:muscle (:groups creature)))
+        my-bones (set (:bone (:groups creature)))
         tri-p (:triad-params creature)
         cell-form (:grn-cell creature)
         tri-concs (:tri-concs creature)
@@ -126,46 +127,125 @@
         freq 6.0
         phase (mod (* time freq) (* 2.0 Math/PI))
         pf (:wall-prox-field state)
+        y-lo (:y-lower-bound state)
+        y-hi (:y-upper-bound state)
+        y-span (- y-hi y-lo)
         air-pg ^liquidfun$b2ParticleGroup (::cave/air-pg state)
-        bc (let [n (.GetBodyContactCount ps)]
-             (loop [bc (.GetBodyContacts ps)
-                    bci 0
-                    m (transient {})]
-               (if (< bci n)
-                 (let [i (.index bc)
-                       body (.body bc)
-                       bc (.position bc (inc bci))]
-                   (if (.ContainsParticle air-pg i)
-                     (recur bc (inc bci) m)
-                     (recur bc (inc bci)
-                            (assoc! m i body))))
-                 (persistent! m))))
-        new-concs (persistent!
-                   (reduce-kv (fn [m handles concs]
-                                (let [params (get tri-p handles)
-                                      p-i (.GetIndex ^liquidfun$b2ParticleHandle
-                                                     (first handles))
-                                      x (.GetParticlePositionX ps p-i)
-                                      y (.GetParticlePositionY ps p-i)
-                                      wall-smell (proxf/proximity-score pf x y)
-                                      wall-touch (if (bc p-i) 1.0 0.0)
-                                      cell (assoc cell-form ::grn/concs concs)
-                                      phase-off (:phase-off params)
-                                      osc (if (pos? (Math/sin (+ phase phase-off)))
-                                            1.0 0.0)
-                                      ic [1.0 ; bias
-                                          osc
-                                          (:factor-a params)
-                                          (:factor-b params)
-                                          (:factor-c params)
-                                          wall-touch
-                                          wall-smell
-                                          ]
-                                      nc (::grn/concs
-                                          (grn/step cell ic dt))]
-                                  (assoc! m handles nc)))
-                              (transient {})
-                              tri-concs))
+        bcm (let [n (.GetBodyContactCount ps)]
+              (loop [bc (.GetBodyContacts ps)
+                     bci 0
+                     bcm (transient {})]
+                (if (< bci n)
+                  (let [i (.index bc)
+                        body (.body bc)
+                        bc (.position bc (inc bci))]
+                    (if (.ContainsParticle air-pg i)
+                      (recur bc (inc bci) bcm)
+                      (recur bc (inc bci)
+                             (assoc! bcm i body))))
+                  (persistent! bcm))))
+        pgbuf (.GetGroupBuffer ps)
+        colbuf (.GetColorBuffer ps)
+        pcm (let [n (.GetContactCount ps)
+                  pkind (fn [i]
+                          (let [pg (liquidfun$b2ParticleGroup. (.get pgbuf (long i)))]
+                            (cond
+                              (= pg air-pg)
+                              :air
+                              (contains? my-muscles pg)
+                              :self-muscle
+                              (contains? my-bones pg)
+                              :self-bone
+                              :else
+                              :other)))
+                  record-contact (fn [m kind ^liquidfun$b2ParticleColor color]
+                                   (if (= kind :air)
+                                     (let [r (/ (.r color) 255.0)
+                                           g (/ (.g color) 255.0)
+                                           b (/ (.b color) 255.0)]
+                                       (update m :colors conj [r g b]))
+                                     (assoc m kind true)))]
+              (loop [pc (.GetContacts ps)
+                     pci 0
+                     pcm (transient {})]
+                (if (< pci n)
+                  (let [ia (.GetIndexA pc)
+                        ib (.GetIndexB pc)
+                        ka (pkind ia)
+                        kb (pkind ib)
+                        pc (.position pc (inc pci))]
+                    (recur pc (inc pci)
+                           (cond-> pcm
+                             (= :self-muscle ka)
+                             (assoc! pcm ia
+                                     (record-contact (get pcm ia) kb
+                                                     (.position colbuf ib)))
+                             (= :self-muscle kb)
+                             (assoc! pcm ib
+                                     (record-contact (get pcm ib) ka
+                                                     (.position colbuf ia))))))
+                  (persistent! pcm))))
+        max-vel max-sensed-velocity
+        velb (.GetVelocityBuffer ps)
+        nconcs (persistent!
+                (reduce-kv
+                 (fn [m handles concs]
+                   (let [params (get tri-p handles)
+                         [^liquidfun$b2ParticleHandle h1
+                          ^liquidfun$b2ParticleHandle h2
+                          ^liquidfun$b2ParticleHandle h3] handles
+                         pi1 (.GetIndex h1)
+                         pi2 (.GetIndex h2)
+                         pi3 (.GetIndex h3)
+                         x (.GetParticlePositionX ps pi1)
+                         y (.GetParticlePositionY ps pi1)
+                         pressure (-> (- y y-lo) (/ y-span) (clamp))
+                         [vx vy] (lf/v2xy (.position velb pi1))
+                         up-vel (-> vy (/ max-vel) (clamp))
+                         down-vel (-> (- vy) (/ max-vel) (clamp))
+                         right-vel (-> vx (/ max-vel) (clamp))
+                         left-vel (-> (- vx) (/ max-vel) (clamp))
+                         wall-smell (proxf/proximity-score pf x y)
+                         wall-touch (if (or (bcm pi1) (bcm pi2) (bcm pi3))
+                                      1.0 0.0)
+                         pc1 (pcm pi1)
+                         pc2 (pcm pi2)
+                         pc3 (pcm pi3)
+                         self-touch (if (or (:self-muscle pc1) (:self-muscle pc2)
+                                            (:self-muscle pc3)) 1.0 0.0)
+                         other-touch (if (or (:other pc1) (:other pc2)
+                                             (:other pc3)) 1.0 0.0)
+                         colors (concat (:colors pc1) (:colors pc2) (:colors pc3))
+                         [rsum gsum bsum] (reduce (fn [[or og ob] [r g b]]
+                                                    [(+ or r) (+ og g) (+ ob b)])
+                                                  [0.0 0.0 0.0]
+                                                  colors)
+                         cell (assoc cell-form ::grn/concs concs)
+                         phase-off (:phase-off params)
+                         osc (if (pos? (Math/sin (+ phase phase-off)))
+                               1.0 0.0)
+                         ic [1.0 ; bias
+                             osc
+                             (:factor-a params)
+                             (:factor-b params)
+                             (:factor-c params)
+                             wall-touch
+                             wall-smell
+                             self-touch
+                             other-touch
+                             (/ rsum (max 1 (count colors)))
+                             (/ gsum (max 1 (count colors)))
+                             (/ bsum (max 1 (count colors)))
+                             pressure
+                             up-vel
+                             down-vel
+                             right-vel
+                             left-vel]
+                         nc (::grn/concs
+                             (grn/step cell ic dt))]
+                     (assoc! m handles nc)))
+                           (transient {})
+                           tri-concs))
         work-fn (fn [handles params]
                   (let [concs (get tri-concs handles)
                         cell (assoc cell-form ::grn/concs concs)
@@ -174,7 +254,7 @@
                     expan))]
     (cre/creature-flex ps (:triad-params creature) work-fn)
     (cre/groups-restore-color ps (:muscle (:groups creature)) [255 0 0 255])
-    (assoc-in state [:creature :tri-concs] new-concs)))
+    (assoc-in state [:creature :tri-concs] nconcs)))
 
 (defn step
   [state]

@@ -40,7 +40,7 @@
 (def seed-cppn
   {:inputs #{:bias :x :y :d}
    :outputs #{:bone :muscle :angle :phase-off :factor-a :factor-b :factor-c}
-   :finals #{:muscle}
+   :finals #{:bone :muscle}
    :zerod #{}
    :nodes {:i0 :gaussian}
    :edges {:i0 {:d -1.0}

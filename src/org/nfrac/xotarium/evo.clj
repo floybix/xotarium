@@ -34,7 +34,7 @@
 
 (def parameter-defaults
   {:crossover-prob 0.5
-   :population-size 12
+   :population-size 48
    :generations 8})
 
 (def sim-steps (* 60 5))

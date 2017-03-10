@@ -123,6 +123,8 @@
     (assoc bed/initial-state
            :world world
            :ground ground
+           :y-lower-bound (- hh)
+           :y-upper-bound hh
            :particle-system ps
            :particle-iterations 3
            :dt-secs (/ 1 60.0)
