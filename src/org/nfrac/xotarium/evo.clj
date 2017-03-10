@@ -34,12 +34,12 @@
 
 (def parameter-defaults
   {:crossover-prob 0.5
-   :population-size 48
+   :population-size 18
    :generations 8})
 
 (def sim-steps (* 60 5))
 
-(def xy-beh-resolution 0.4);; each multiple of this is a distinct behaviour.
+(def xy-beh-resolution 0.6);; each multiple of this is a distinct behaviour.
 
 (s/def ::parameters (s/keys))
 
@@ -64,12 +64,30 @@
   (let [summed (reduce v2d/v-add xys)]
     (v2d/v-scale summed (/ 1.0 (count xys)))))
 
+(defn mid-point
+  [xys]
+  (loop [xys xys
+         xmin Double/MAX_VALUE
+         ymin Double/MAX_VALUE
+         xmax Double/MIN_VALUE
+         ymax Double/MIN_VALUE]
+    (if-let [[x y] (first xys)]
+      (let [x (double x)
+            y (double y)]
+        (recur (rest xys)
+               (if (< x xmin) x xmin)
+               (if (< y ymin) y ymin)
+               (if (> x xmax) x xmax)
+               (if (> y ymax) y ymax)))
+      [(* 0.5 (+ xmin xmax))
+       (* 0.5 (+ ymin ymax))])))
+
 (defn point-in-time-measures
   [state]
   (let [creature (:creature state)
         grps (apply concat (vals (:groups creature)))
         cents (map lf/center grps)
-        [x y] (mean-point cents)]
+        [x y] (mid-point cents)]
     {:cent-x (int (/ x xy-beh-resolution))
      :cent-y (int (/ y xy-beh-resolution))}))
 

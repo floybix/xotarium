@@ -2,7 +2,6 @@
 * perf
   - step fn in java/C?
 
-* creature location is center over all particles (not groups)
 
 * viz inputs to GRN cells / over time
 
