@@ -254,7 +254,8 @@
                         expan (-> (first g-out) (* 2.0) (- 1.0))]
                     expan))]
     (cre/creature-flex ps (:triad-params creature) work-fn)
-    (cre/groups-restore-color ps (:muscle (:groups creature)) [255 0 0 255])
+    (cave/groups-restore-color ps (:muscle (:groups creature)) [255 0 0 255])
+    (cave/group-decay-color ps (::cave/air-pg state) 0.99)
     (assoc-in state [:creature :tri-concs] nconcs)))
 
 (defn step

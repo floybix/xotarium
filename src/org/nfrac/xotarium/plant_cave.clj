@@ -117,7 +117,7 @@
                               :elastic-strength 0.75
                               :damping-strength 0.5
                               :gravity-scale 0.0
-                              :color-mixing-strength 0.05
+                              :color-mixing-strength 0.5
                               ;:strict-contact-check true
                               :destroy-by-age false})]
     (assoc bed/initial-state
@@ -440,6 +440,36 @@
        (do-add-air)
        (step)
        :world))
+
+(defn groups-restore-color
+  [^liquidfun$b2ParticleSystem ps pgroups [r g b a]]
+  (let [pis (mapcat particle-indices pgroups)
+        cbuf (.GetColorBuffer ps)
+        r (int r)
+        g (int g)
+        b (int b)
+        a (int a)]
+    (doseq [i pis]
+      (let [cbuf (.position cbuf (int i))]
+        (doto cbuf
+          (.r r)
+          (.g g)
+          (.b b)
+          (.a a))))))
+
+(defn group-decay-color
+  [^liquidfun$b2ParticleSystem ps ^liquidfun$b2ParticleGroup pg alpha]
+  (let [alpha (double alpha)
+        cbuf (.GetColorBuffer ps)
+        start (.GetBufferIndex pg)
+        end (+ start (.GetParticleCount pg))]
+    (loop [i start]
+      (when (< i end)
+        (let [c (.position cbuf i)]
+          (.r c (max 0 (dec (.r c))))
+          (.g c (max 0 (dec (.g c))))
+          (.b c (max 0 (dec (.b c))))
+          (recur (inc i)))))))
 
 (defn my-key-press
   [state event]

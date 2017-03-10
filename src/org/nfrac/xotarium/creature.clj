@@ -30,6 +30,7 @@
 (def creature-width 1.8)
 (def creature-height 1.8)
 (def min-creature-particles 10)
+(def muscle-strength 0.6)
 
 ;; interpretation:
 ;; if muscle is positive, express muscle.
@@ -249,22 +250,6 @@
               (update m tissue conj g))
             {})))
 
-(defn groups-restore-color
-  [^liquidfun$b2ParticleSystem ps pgroups [r g b a]]
-  (let [pis (mapcat cave/particle-indices pgroups)
-        cbuf (.GetColorBuffer ps)
-        r (int r)
-        g (int g)
-        b (int b)
-        a (int a)]
-    (doseq [i pis]
-      (let [cbuf (.position cbuf (int i))]
-        (doto cbuf
-          (.r r)
-          (.g g)
-          (.b b)
-          (.a a))))))
-
 (defn morpho-particle-parameters
   "Returns a map of particle handle to parameters map,
   for the muscle tissues."
@@ -349,8 +334,8 @@
             strength-x (Math/cos angle)
             strength-y (Math/sin angle)
             mag (work-fn handles params)
-            scale-x (+ 1.0 (* strength-x mag 0.75))
-            scale-y (+ 1.0 (* strength-y mag 0.75))]
+            scale-x (+ 1.0 (* strength-x mag muscle-strength))
+            scale-y (+ 1.0 (* strength-y mag muscle-strength))]
         (v2-flex (.pa triad) ref-pa scale-x scale-y)
         (v2-flex (.pb triad) ref-pb scale-x scale-y)
         (v2-flex (.pc triad) ref-pc scale-x scale-y)))))
@@ -428,7 +413,8 @@
                     (Math/sin (+ phase phase-off))))]
     (when creature
       (creature-flex ps (:triad-params creature) work-fn)
-      (groups-restore-color ps (:muscle (:groups creature)) [255 0 0 255]))
+      (cave/groups-restore-color ps (:muscle (:groups creature)) [255 0 0 255]))
+    (cave/group-decay-color ps (::cave/air-pg state) 0.99)
     state))
 
 (defn step

@@ -25,11 +25,6 @@
 
 
 
-* global smell decay
-
-
-
-
 # Evolution
 
 * behavioural distance?
