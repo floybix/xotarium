@@ -414,7 +414,8 @@
     (when creature
       (creature-flex ps (:triad-params creature) work-fn)
       (cave/groups-restore-color ps (:muscle (:groups creature)) [255 0 0 255]))
-    (cave/group-decay-color ps (::cave/air-pg state) 0.99)
+    (when (zero? (mod (int (/ time (:dt-secs state))) cave/decay-every-n-steps))
+      (cave/group-decay-color ps (::cave/air-pg state) cave/decay-factor))
     state))
 
 (defn step

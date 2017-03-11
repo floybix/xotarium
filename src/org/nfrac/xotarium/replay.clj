@@ -105,7 +105,9 @@
   (quil/sketch
    :title "Xotarium"
    :host "liquidfun"
-   :setup #(setup file)
+   :setup #(do
+             (quil/frame-rate 30)
+             (setup file))
    :update (fn [state]
              (if (:paused? (:current state))
                state

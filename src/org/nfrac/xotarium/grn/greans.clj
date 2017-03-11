@@ -11,7 +11,7 @@
 
 (def parameter-defaults
   {:mut-coord-mag 1.0
-   :mut-coord-prob 0.05
+   :mut-coord-prob 0.08
    :mut-sign-prob 0.05
    :mut-type-prob 0.05
    :switch-inout-prob 0.05
@@ -432,7 +432,7 @@
                             (random/split-n r2 (count ins)))
            ::output-tfs (map (fn [id ra rb]
                                (if (< (random/rand-double ra) prob)
-                                 (util/rand-int rb 100)
+                                 (util/rand-int rb 1000)
                                  id))
                              outs
                              (random/split-n r3 (count outs))

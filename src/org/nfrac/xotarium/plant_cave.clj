@@ -35,6 +35,9 @@
 (def fix-radius (* p-radius 5))
 (def flow-types #{:spin-ccw :spin-cw :down :up :out})
 
+(def decay-every-n-steps 5)
+(def decay-factor 0.97)
+
 (def wall-points (atom #{}))
 
 (defn record-wall-point! [x y]
@@ -395,7 +398,7 @@
                    ps
                    {:flags (lf/particle-flags #{:water :color-mixing})
                     :stride (* 0.75 p-radius 2.0)
-                    :color [255 255 255 128]
+                    :color [0 0 0 0]
                     :shape (lf/box cave-hw cave-hh)})]
     (assoc state ::air-pg air-pg)))
 
@@ -458,17 +461,14 @@
           (.a a))))))
 
 (defn group-decay-color
-  [^liquidfun$b2ParticleSystem ps ^liquidfun$b2ParticleGroup pg alpha]
-  (let [alpha (double alpha)
-        cbuf (.GetColorBuffer ps)
+  [^liquidfun$b2ParticleSystem ps ^liquidfun$b2ParticleGroup pg ^double factor]
+  (let [cbuf (.GetColorBuffer ps)
         start (.GetBufferIndex pg)
         end (+ start (.GetParticleCount pg))]
     (loop [i start]
       (when (< i end)
         (let [c (.position cbuf i)]
-          (.r c (max 0 (dec (.r c))))
-          (.g c (max 0 (dec (.g c))))
-          (.b c (max 0 (dec (.b c))))
+          (.multiplyPut c factor)
           (recur (inc i)))))))
 
 (defn my-key-press
