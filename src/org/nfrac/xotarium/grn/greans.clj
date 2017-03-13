@@ -177,9 +177,11 @@
   [grn]
   (let [cg (s/conform ::grn grn)
         _ (when (= cg ::s/invalid) (s/explain ::grn grn))
+        input-tf? (set (::input-tfs grn))
         units (:units (::elements cg))
         unit-promoters (index-counts (map #(count (:promoters %)) units) 0)
-        unit-tfs (index-counts (map #(count (:genes %)) units) 0)
+        unit-tfs (->> (index-counts (map #(count (:genes %)) units) 0)
+                      (mapv #(apply list (remove input-tf? %))))
         all-prs (mapcat :promoters units)
         all-tfs (mapcat :genes units)
         ;; pr -> {tf -> infl}
@@ -247,21 +249,25 @@
            unit-promoters (seq unit-promoters)
            new-concs (transient concs)]
       (if (< unit-i n-units)
-        (let [pr-ids (first unit-promoters)
-              unit-a (max 0.0
-                          (transduce
-                           (map #(promoter-activation % influences concs))
-                           + 0 pr-ids))
-              tf-ids (get unit-tfs unit-i)
-              ncs (reduce (fn [ncs tf-id]
-                            (let [c (double (get new-concs tf-id))
-                                  dc (conc-rate-of-change c unit-a)]
-                              (assoc! ncs tf-id (+ c (* dc dt)))))
-                          new-concs
-                          tf-ids)]
+        (if-let [tf-ids (seq (get unit-tfs unit-i))]
+          (let [pr-ids (first unit-promoters)
+                unit-a (max 0.0
+                            (transduce
+                             (map #(promoter-activation % influences concs))
+                             + 0 pr-ids))
+                ncs (reduce (fn [ncs tf-id]
+                              (let [c (double (get new-concs tf-id))
+                                    dc (conc-rate-of-change c unit-a)]
+                                (assoc! ncs tf-id (+ c (* dc dt)))))
+                            new-concs
+                            tf-ids)]
+            (recur (inc unit-i)
+                   (rest unit-promoters)
+                   ncs))
+          ;; no valid tfs in this unit (they are all inputs) - skip for perf
           (recur (inc unit-i)
                  (rest unit-promoters)
-                 ncs))
+                 new-concs))
         ;; done
         (assoc cell ::concs (persistent! new-concs))))))
 
