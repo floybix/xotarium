@@ -31,7 +31,7 @@
             liquidfun$b2ParticleDef
             liquidfun$b2QueryCallback)))
 
-(def max-sensed-velocity 2.0)
+(def max-sensed-velocity 8.0)
 
 ;; this list should match the args passed to grn/step!
 (def beh-inputs '[bias
@@ -178,13 +178,11 @@
                     (recur pc (inc pci)
                            (cond-> pcm
                              (= :self-muscle ka)
-                             (assoc! pcm ia
-                                     (record-contact (get pcm ia) kb
-                                                     (.position colbuf ib)))
+                             (assoc! ia (record-contact (get pcm ia) kb
+                                                        (.position colbuf ib)))
                              (= :self-muscle kb)
-                             (assoc! pcm ib
-                                     (record-contact (get pcm ib) ka
-                                                     (.position colbuf ia))))))
+                             (assoc! ib (record-contact (get pcm ib) ka
+                                                        (.position colbuf ia))))))
                   (persistent! pcm))))
         max-vel max-sensed-velocity
         velb (.GetVelocityBuffer ps)
@@ -245,8 +243,8 @@
                          nc (::grn/concs
                              (grn/step cell ic dt))]
                      (assoc! m handles nc)))
-                           (transient {})
-                           tri-concs))
+                 (transient {})
+                 tri-concs))
         work-fn (fn [handles params]
                   (let [concs (get tri-concs handles)
                         cell (assoc cell-form ::grn/concs concs)
