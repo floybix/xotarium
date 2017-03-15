@@ -34,12 +34,12 @@
 
 (def parameter-defaults
   {:crossover-prob 0.5
-   :population-size 30
-   :generations 12})
+   :population-size 20
+   :generations 5})
 
 (def sim-steps (* 60 5))
 
-(def xy-beh-resolution 0.6);; each multiple of this is a distinct behaviour.
+(def xy-beh-resolution 0.5);; each multiple of this is a distinct behaviour.
 
 (s/def ::parameters (s/keys))
 
@@ -213,35 +213,39 @@
         crossable (map :representative (vals beh-archive))]
     (loop [indivs seln
            popn ()
+           gparents {}
            rng rng]
       (if-let [indiv (first indivs)]
         (let [genome (:genome indiv)
               [rng r1 r2 r3 r4] (random/split-n rng 5)
-              offspring (->
-                         (if (< (util/rand r1 0 1) crossover-prob)
-                           (let [other (util/rand-nth r2 crossable)]
-                             (grncre/crossover genome other r3))
-                           genome)
-                         (grncre/mutate r4))]
+              mut-genome (grncre/mutate genome r1)
+              [new-genome parent-ids] (if (< (random/rand-double r2) crossover-prob)
+                                        (let [other (util/rand-nth r3 crossable)]
+                                          [(grncre/crossover mut-genome other r4)
+                                           [(hash genome) (hash other)]])
+                                        [mut-genome
+                                         [(hash genome)]])]
           (recur (rest indivs)
-                 (conj popn {:genome offspring})
+                 (conj popn {:genome new-genome})
+                 (assoc gparents (hash new-genome) parent-ids)
                  rng))
         ;; done
-        popn))))
+        [popn gparents]))))
 
 (s/fdef next-generation
         :args (s/cat :seln (s/every ::indiv)
                      :ba ::behaviour-archive
                      :rng ::util/rng
                      :parameters ::parameters)
-        :ret (s/every ::indiv))
+        :ret (s/cat :popn (s/every ::indiv)
+                    :gparents (s/every-kv any? (s/every any?))))
 
 (defn generation
   [popn beh-archive parameters seed rng]
   (let [[epopn ba] (eval-popn popn beh-archive seed)
         seln (selection epopn parameters)
-        next-popn (next-generation seln ba rng parameters)]
-    [next-popn ba]))
+        [next-popn gparents] (next-generation seln ba rng parameters)]
+    [next-popn ba gparents]))
 
 (defn to-file
   [file form]
@@ -254,29 +258,25 @@
     (read r)))
 
 (defn evolve-continue
-  [rng seed parameters popn beh-archive]
-  (loop [popn popn
-         beh-archive beh-archive
-         gi 0
-         rng rng]
-    (if (< gi (:generations parameters))
-      ;; this genereration tag will end up in the behaviour archive
-      (let [popn (map #(assoc-in % [:genome :generation] gi) popn)
-            [rng rng*] (random/split rng)
-            [next-popn ba] (generation popn beh-archive parameters seed rng*)]
-        (println "gen" gi "behs:" (count ba))
-        (println "grn sizes:"
-                 (->> popn (map :genome) (map :grn) (map #(count (::grn/elements %))) (sort >)))
-        (println "cppn sizes:"
-                 (->> popn (map :genome) (map :cppn) (map #(count (cppn/edge-list %))) (sort >)))
-        (recur next-popn
-               ba
-               (inc gi)
-               rng))
-      ;; done
-      {:beh-archive beh-archive
-       :popn popn
-       :seed seed})))
+  [rng seed parameters popn beh-archive parents gi]
+  (if (< gi (:generations parameters))
+    ;; this genereration tag will end up in the behaviour archive
+    (let [popn (map #(assoc-in % [:genome :generation] gi) popn)
+          [rng rng*] (random/split rng)
+          [next-popn ba gparents] (generation popn beh-archive parameters seed rng*)]
+      (println "gen" gi "behs:" (count ba))
+      (println "grn sizes:"
+               (->> popn (map :genome) (map :grn) (map #(count (::grn/elements %))) (sort >)))
+      (println "cppn sizes:"
+               (->> popn (map :genome) (map :cppn) (map #(count (cppn/edge-list %))) (sort >)))
+      (recur rng seed parameters next-popn ba
+             (merge-with concat parents gparents) ;; identical mutants might show up
+             (inc gi)))
+    ;; done
+    {:beh-archive beh-archive
+     :popn popn
+     :parents parents
+     :seed seed}))
 
 (defn evolve
   [rng seed parameters]
@@ -286,7 +286,7 @@
                      (map (fn [rng]
                             {:genome (grncre/random-genome rng)})
                           (random/split-n rng* n-popn))
-                     {})))
+                     {} {} 0)))
 
 (defn run
   [seed & args]
@@ -298,9 +298,9 @@
 (defn run-more
   [file run-seed & args]
   (let [run-seed (Long. (str run-seed))
-        {:keys [beh-archive popn seed]} (from-file file)
+        {:keys [beh-archive popn parents seed]} (from-file file)
         rng (random/make-random (Long. (str seed)))]
-    (->> (evolve rng run-seed parameter-defaults)
+    (->> (evolve-continue rng run-seed parameter-defaults popn beh-archive parents 0)
          (to-file (str file "-more-" run-seed)))))
 
 (comment
