@@ -1,4 +1,9 @@
 
+
+* require some muscles
+
+
+
 * perf
   - step fn in java/C?
 
@@ -7,6 +12,8 @@
 
 * test response of GRNs to various inputs
   - (vs a defined reference state)
+
+* separate enviro seed from evo seed
 
 
 

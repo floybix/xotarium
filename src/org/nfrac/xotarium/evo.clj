@@ -34,13 +34,13 @@
 
 (def parameter-defaults
   {:crossover-prob 0.5
-   :population-size 20
+   :population-size 30
    :max-selection-fraction 0.5
    :generations 5})
 
 (def sim-steps (* 60 5))
 
-(def xy-beh-resolution 0.5);; each multiple of this is a distinct behaviour.
+(def xy-beh-resolution 0.4);; each multiple of this is a distinct behaviour.
 
 (s/def ::parameters (s/keys))
 
@@ -225,8 +225,8 @@
   using mutation and crossover"
   [seln beh-archive rng parameters gi]
   (let [{:keys [crossover-prob]} parameters
-        crossable (concat (map :representative (vals beh-archive))
-                          (map :genome seln))]
+        crossable (set (concat (map :representative (vals beh-archive))
+                               (map :genome seln)))]
     (loop [indivs seln
            popn ()
            gparents {}
@@ -236,7 +236,8 @@
               [rng r1 r2 r3 r4] (random/split-n rng 5)
               [mut-genome mut-info] (grncre/mutate genome r1)
               [new-genome parent-ids] (if (< (random/rand-double r2) crossover-prob)
-                                        (let [other (util/rand-nth r3 crossable)]
+                                        (let [crossable (disj crossable genome)
+                                              other (util/rand-nth r3 (seq crossable))]
                                           [(grncre/crossover mut-genome other r4)
                                            [(hash genome) (hash other)]])
                                         [mut-genome
@@ -302,15 +303,16 @@
      :popn popn
      :parents parents
      :seed seed
+     :parameters parameters
      :generation gi}))
 
 (defn evolve
-  [rng seed parameters]
+  [rng seed parameters grn-parameters]
   (let [n-popn (:population-size parameters)
         [rng rng*] (random/split rng)]
     (evolve-continue rng seed parameters
                      (map (fn [rng]
-                            {:genome (grncre/random-genome rng)})
+                            {:genome (grncre/random-genome rng grn-parameters)})
                           (random/split-n rng* n-popn))
                      {} {} 0)))
 
@@ -320,7 +322,8 @@
         seed (Long. (str seed))
         rng (random/make-random seed)]
     (->> (evolve rng seed (assoc parameter-defaults
-                                 :generations ng))
+                                 :generations ng)
+                 grn/parameter-defaults)
          (to-file (str "beh-archive-seed" seed ".edn")))))
 
 (defn run-more

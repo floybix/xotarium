@@ -67,9 +67,10 @@
                    ::grn/grn]))
 
 (defn random-genome
-  [rng]
+  [rng grn-parameters]
   (let [cppn cre/seed-cppn
-        grn (grn/random-grn (count beh-inputs) (count beh-outputs) rng)]
+        grn (grn/random-grn (count beh-inputs) (count beh-outputs) rng
+                            grn-parameters)]
     {:cppn cppn
      :grn grn}))
 
@@ -293,7 +294,7 @@
     (quil/sketch
      :title "Xotarium"
      :host "liquidfun"
-     :setup #(setup (random-genome rng) seed)
+     :setup #(setup (random-genome rng grn/parameter-defaults) seed)
      :update (fn [s] (if (:paused? s) s (step s)))
      :draw #(if (zero? (mod (quil/frame-count) 2)) (bed/draw % true) %)
      :key-typed my-key-press

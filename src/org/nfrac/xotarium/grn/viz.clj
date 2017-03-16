@@ -104,6 +104,7 @@
 (defn draw
   [state]
   (let [data (:data state)
+        parameters (:parameters state)
         bb (bounding-box-pad
             (mapcat (fn [unit]
                       (concat (map ::grn/coords (:tfs unit))
@@ -115,8 +116,9 @@
         tri-px 6
         scale (domain-to-px-scale (- xmax xmin) (- ymax ymin)
                                   (quil/width) (quil/height))
-        affinity-one-px (* scale (grn/critical-affinity-distance 1.0))
-        affinity-full-px (* scale (grn/critical-affinity-distance grn/AFFINITY_EPS))]
+        {:keys [max-affinity affinity-eps]} parameters
+        affinity-one-px (* scale (grn/critical-affinity-distance 1.0 max-affinity))
+        affinity-full-px (* scale (grn/critical-affinity-distance affinity-eps max-affinity))]
     (quil/background 255 255 255)
     (doseq [unit data
             :let [[r g b] (:color unit)
@@ -190,17 +192,14 @@
   [state]
   state)
 
-(defn setup
-  [data]
-  (quil/frame-rate 1)
-  {:data data})
-
 (defn run
-  [data]
+  [{:keys [data parameters] :as state}]
   (quil/sketch
    :title "GRN viz"
    :host "liquidfun"
-   :setup #(setup data)
+   :setup (fn []
+            (quil/frame-rate 1)
+            state)
    :update step
    :draw draw
    :size [800 800]

@@ -48,8 +48,8 @@
 
 (defn setup-current
   [genome seed]
-  (assoc (grncre/setup genome seed)
-         ::step-i 0))
+  (when-let [state (grncre/setup genome seed)]
+    (assoc state ::step-i 0)))
 
 (defn step-current
   [pre-state]
@@ -103,15 +103,17 @@
   (let [state (:current mstate)
         ps ^liquidfun$b2ParticleSystem (:particle-system state)]
     (case (:key event)
-      :n (let [i (:genome-index mstate)
-               i+ (inc i)
-               genome (get (:genomes mstate) i+)
-               seed (:seed mstate)]
-           (when-not genome
-             (System/exit 0))
-           (assoc mstate
-                  :genome-index i+
-                  :current (setup-current genome seed)))
+      :n (loop [i (:genome-index mstate)]
+           (let [i+ (inc i)
+                 genome (get (:genomes mstate) i+)
+                 seed (:seed mstate)]
+             (when-not genome
+               (System/exit 0))
+             (if-let [state (setup-current genome seed)]
+               (assoc mstate
+                     :genome-index i+
+                     :current state)
+               (recur (inc i)))))
       :i (let [tf-vs (::tf-ranges state)
                tf-dvs (::tf-dranges state)
                n-tfs (count tf-vs)
@@ -153,11 +155,12 @@
            mstate)
       :s (let []
            mstate)
-      :v (do
-           (grnviz/run (grnviz/grn-viz-data (:grn (:creature state))
-                                            grncre/beh-inputs
-                                            grncre/beh-outputs))
-           mstate)
+      :v (let [grn (:grn (:creature state))]
+           (grnviz/run {:data (grnviz/grn-viz-data grn
+                                                   grncre/beh-inputs
+                                                   grncre/beh-outputs)
+                        :parameters (::grn/parameters grn)})
+            mstate)
       :b (do
            (body! (:world state) {}
                   {:shape (lf/circle 0.25)
@@ -177,26 +180,31 @@
 
 (defn setup
   [file]
-  (let [{:keys [beh-archive seed]} (from-file file)
-        genomes (->> (map :representative (vals beh-archive))
-                     (sort-by :generation)
-                     (vec))
+  (let [{:keys [beh-archive popn seed]} (from-file file)
+        beh-genomes (->> (map :representative (vals beh-archive))
+                         (sort-by :generation)
+                         (vec))
+        genomes (into beh-genomes
+                      (map :genome popn))
         genome-index 0]
     {:seed seed
      :genomes genomes
      :genome-index genome-index
+     :n-behs (count beh-archive)
      :current (setup-current (get genomes genome-index) seed)}))
 
 (defn draw
   [mstate]
   (bed/draw (:current mstate) true)
   (let [gi (:genome-index mstate)
-        genome (get (:genomes mstate) gi)]
+        genome (get (:genomes mstate) gi)
+        n-behs (:n-behs mstate)
+        n-popn (- (count (:genomes mstate)) n-behs)]
     (quil/fill 255)
-    (quil/text (str "Replaying beh. "
-                    (inc gi)
-                    " / "
-                    (count (:genomes mstate))
+    (quil/text (str "Replaying "
+                    (if (< gi n-behs)
+                      (str (inc gi) " / " n-behs " beh.")
+                      (str (- gi n-behs) " / " n-popn " indiv."))
                     " (gen " (:generation genome) ")."
                     " Keys: (n) next behaviour, (i) print TF info,"
                     " (v) GRN viz, (s) sensitivity analysis")

@@ -7,12 +7,12 @@
             [org.nfrac.xotarium.util :as util]
             [clojure.test.check.random :as random]))
 
-(def INIT_MAX_COORD 10.0)
-(def MAX_AFFINITY 5.0)
-(def AFFINITY_EPS 0.05)
-
 (def parameter-defaults
-  {:mut-coord-mag 1.0
+  {:init-max-coord 10.0
+   :max-affinity 5.0
+   :affinity-eps 0.05
+   ;; mutation
+   :mut-coord-mag 1.0
    :mut-coord-prob 0.08
    :mut-sign-prob 0.05
    :mut-type-prob 0.05
@@ -30,7 +30,9 @@
 
 (s/def ::coordinate
   (-> (s/double-in :infinite? false :NaN? false)
-      (s/with-gen #(gen/double* {:min 0.0 :max INIT_MAX_COORD :NaN? false}))))
+      (s/with-gen #(gen/double* {:min 0.0
+                                 :max (:init-max-coord parameter-defaults)
+                                 :NaN? false}))))
 
 (s/def ::coords (s/coll-of ::coordinate :count 2))
 
@@ -75,42 +77,46 @@
   (gen/generate (s/gen ::grn)))
 
 (defn random-element
-  [rng type]
+  [rng type max-coord]
   (let [[r1 r2 r3] (random/split-n rng 3)]
     {::element-type type
      ::sign (util/rand-nth r1 [-1 1])
-     ::coords [(util/rand r2 0 INIT_MAX_COORD)
-               (util/rand r3 0 INIT_MAX_COORD)]}))
+     ::coords [(util/rand r2 0 max-coord)
+               (util/rand r3 0 max-coord)]}))
 
 (defn random-unit
-  [rng]
+  [rng max-coord]
   (let [[r1 r2 r3 r4] (random/split-n rng 4)
         npr (util/rand-int r1 1 3)
         ntf (util/rand-int r2 1 3)]
-    (concat (map #(random-element % ::promoter) (random/split-n r3 npr))
-            (map #(random-element % ::gene) (random/split-n r4 ntf)))))
+    (concat (map #(random-element % ::promoter max-coord) (random/split-n r3 npr))
+            (map #(random-element % ::gene max-coord) (random/split-n r4 ntf)))))
 
 (defn random-grn
-  [n-in n-out rng]
+  [n-in n-out rng parameters]
   (let [n-units (+ n-in n-out 1)
+        max-coord (:init-max-coord parameters)
         [r1 r2] (random/split-n rng 2)
-        es (mapcat #(random-unit %) (random/split-n r1 n-units))
+        es (mapcat #(random-unit % max-coord)
+                   (random/split-n r1 n-units))
         n-tfs (count (filter #(= ::gene (::element-type %)) es))
         tf-ids (util/shuffle r1 (range n-tfs))]
     {::elements es
      ::input-tfs (take n-in tf-ids)
      ::output-tfs (take n-out (drop n-in tf-ids))
-     ::parameters parameter-defaults}))
+     ::parameters parameters}))
 
 (s/fdef random-element
         :args (s/cat :rng ::util/rng
-                     :type ::element-type)
+                     :type ::element-type
+                     :max-coord (s/double-in :min 0.0 :NaN? false))
         :ret ::element)
 
 (s/fdef random-grn
         :args (s/cat :n-in pos-int?
                      :n-out pos-int?
-                     :rng ::util/rng)
+                     :rng ::util/rng
+                     :parameters ::parameters)
         :ret ::grn)
 
 ;;;  "cell" / usable form of grn
@@ -118,8 +124,8 @@
 (s/def ::tf-id nat-int?)
 (s/def ::promoter-id nat-int?)
 
-(s/def ::affinity (s/double-in :min 0.0 :max MAX_AFFINITY :NaN? false))
-(s/def ::influence (s/double-in :min (- MAX_AFFINITY) :max MAX_AFFINITY :NaN? false))
+(s/def ::affinity (s/double-in :min 0.0 :max 10000 :NaN? false))
+(s/def ::influence (s/double-in :min (- 10000) :max 10000 :NaN? false))
 (s/def ::concentration (s/double-in :min 0.0 :max 1.0 :NaN? false))
 
 ;; vector keyed by unit id
@@ -154,27 +160,28 @@
           offsets counts)))
 
 (defn affinity
-  [[ax ay] [bx by]]
+  [[ax ay] [bx by] max-affinity affinity-eps]
   (let [d (Math/sqrt (+ (Math/abs (double (- bx ax)))
                         (Math/abs (double (- by ay)))))]
-    (let [aff (* MAX_AFFINITY
+    (let [aff (* max-affinity
                  (Math/exp (* -1.0 d)))]
-      (when (>= aff AFFINITY_EPS)
+      (when (>= aff affinity-eps)
         aff))))
 
 ;; for viz / diagnostics
 (defn critical-affinity-distance
-  [aff]
+  [aff max-affinity]
   (-> aff
-      (/ MAX_AFFINITY)
+      (/ max-affinity)
       (Math/log)
       (-)))
 
 (defn promoter-influences
-  [pr tfs]
+  [pr tfs max-affinity affinity-eps]
   (let [pr-coords (::coords pr)]
     (reduce (fn [m [tf-id tf]]
-              (if-let [aff (affinity pr-coords (::coords tf))]
+              (if-let [aff (affinity pr-coords (::coords tf)
+                                     max-affinity affinity-eps)]
                 (assoc m tf-id (* aff (::sign pr) (::sign tf)))
                 m))
             {}
@@ -191,8 +198,11 @@
                       (mapv #(apply list (remove input-tf? %))))
         all-prs (mapcat :promoters units)
         all-tfs (mapcat :genes units)
+        {:keys [max-affinity affinity-eps]} (::parameters grn)
         ;; pr -> {tf -> infl}
-        pr-influences (mapv #(promoter-influences % all-tfs) all-prs)]
+        pr-influences (mapv #(promoter-influences % all-tfs
+                                                  max-affinity affinity-eps)
+                            all-prs)]
     (merge
      (select-keys cg [::input-tfs ::output-tfs ::parameters])
      {::unit-promoters unit-promoters
@@ -301,7 +311,7 @@
 
 (comment
   (def g (gen/generate (s/gen ::grn)))
-  (def g (random-grn 2 2))
+  (def g (random-grn 2 2 parameter-defaults))
   (def cell (grn->cell g))
   (def csteps (iterate #(step % [1.0 1.0] 0.15) cell))
   (map println (map cell-outputs (take 10 csteps)))
