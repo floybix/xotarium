@@ -424,6 +424,29 @@
         (.Set coli 128 128 (int (* 255 p)) 255)))
     state))
 
+(defn do-add-color-sources
+  [state]
+  (let [ps ^liquidfun$b2ParticleSystem (:particle-system state)
+        rod-width (* p-radius 1)
+        hw (* 0.5 cave-width)
+        hh (* 0.5 cave-height)]
+    (reduce-kv (fn [state id {:keys [color from angle length]}]
+                 (let [pg (lf/particle-group!
+                           ps
+                           {:flags (lf/particle-flags #{:color-mixing})
+                            :shape (lf/rod from angle length rod-width)
+                            :color color})]
+                   (assoc state id pg)))
+               state
+               {::green-source {:color [0 255 0 255]
+                                :from [(* -0.5 hw) 0]
+                                :angle (/ Math/PI 2)
+                                :length (/ hh 4)}
+                ::blue-source {:color [0 0 255 255]
+                               :from [0 (* 0.5 hh)]
+                               :angle 0
+                               :length (/ hw 4)}} )))
+
 (defn build-world
   []
   (->> (setup)

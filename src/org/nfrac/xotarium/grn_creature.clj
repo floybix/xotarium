@@ -106,7 +106,8 @@
   [genome seed]
   (let [;world (cave/build-world)
         state (-> (cave/setup)
-                  (cave/do-add-air))
+                  (cave/do-add-air)
+                  (cave/do-add-color-sources))
         _ (cave/add-random-static-bars (:ground state) (random/make-random seed))
         pf (cave/get-prox-field (:world state))
         creature (come-alive (:world state) genome)]
@@ -257,6 +258,8 @@
                     expan))]
     (cre/creature-flex ps (:triad-params creature) work-fn)
     (cave/groups-restore-color ps (:muscle (:groups creature)) [255 0 0 255])
+    (cave/groups-restore-color ps [(::cave/green-source state)] [0 255 0 255])
+    (cave/groups-restore-color ps [(::cave/blue-source state)] [0 0 255 255])
     (when (zero? (mod (int (/ time (:dt-secs state))) cave/decay-every-n-steps))
       (cave/group-decay-color ps (::cave/air-pg state) cave/decay-factor))
     (assoc-in state [:creature :tri-concs] nconcs)))
