@@ -75,11 +75,13 @@
      :grn grn}))
 
 (defn mutate
-  [genome rng]
+  [genome rng mutate-cppn-prob]
   (let [{:keys [grn cppn]} genome
-        [rng rng*] (random/split rng)
-        ncppn (cppn/mutate-with-perturbation cppn rng* {})
-        [ngrn mut-info] (grn/mutate grn rng)]
+        [r1 r2 r3] (random/split-n rng 3)
+        ncppn (if (< (random/rand-double r1) mutate-cppn-prob)
+                (cppn/mutate-with-perturbation cppn r2 {})
+                cppn)
+        [ngrn mut-info] (grn/mutate grn r3)]
     [(assoc genome
             :cppn ncppn
             :grn ngrn)

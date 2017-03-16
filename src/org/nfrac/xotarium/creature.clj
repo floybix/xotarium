@@ -46,12 +46,10 @@
    :nodes {:i0 :gaussian}
    :edges {:i0 {:d -1.0}
            :factor-a {:x 1.0}
-           :factor-b {:i0 1.0}
-           :factor-c {:i0 0.5
-                      :x 1.0
-                      :bias -0.5}
+           :factor-b {:y 1.0}
+           :factor-c {:i0 0.5}
            :phase-off {:x 1.0}
-           :angle {:bias 0.5}
+           :angle {:i0 0.5}
            :bone {:i0 0.5
                   :bias -0.2}
            :muscle {:factor-c 1.0}}})

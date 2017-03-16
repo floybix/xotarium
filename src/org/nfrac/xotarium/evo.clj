@@ -34,13 +34,14 @@
 
 (def parameter-defaults
   {:crossover-prob 0.5
-   :population-size 30
-   :max-selection-fraction 0.5
-   :generations 5})
+   :mutate-cppn-prob 0.2
+   :population-size 32
+   :max-selection-fraction 0.25
+   :generations 6})
 
 (def sim-steps (* 60 5))
 
-(def xy-beh-resolution 0.4);; each multiple of this is a distinct behaviour.
+(def xy-beh-resolution 0.5);; each multiple of this is a distinct behaviour.
 
 (s/def ::parameters (s/keys))
 
@@ -224,7 +225,7 @@
   "Take selected individuals, with repeats, and prepare the next generation
   using mutation and crossover"
   [seln beh-archive rng parameters gi]
-  (let [{:keys [crossover-prob]} parameters
+  (let [{:keys [crossover-prob mutate-cppn-prob]} parameters
         crossable (set (concat (map :representative (vals beh-archive))
                                (map :genome seln)))]
     (loop [indivs seln
@@ -234,7 +235,7 @@
       (if-let [indiv (first indivs)]
         (let [genome (:genome indiv)
               [rng r1 r2 r3 r4] (random/split-n rng 5)
-              [mut-genome mut-info] (grncre/mutate genome r1)
+              [mut-genome mut-info] (grncre/mutate genome r1 mutate-cppn-prob)
               [new-genome parent-ids] (if (< (random/rand-double r2) crossover-prob)
                                         (let [crossable (disj crossable genome)
                                               other (util/rand-nth r3 (seq crossable))]
