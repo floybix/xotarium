@@ -359,7 +359,9 @@
         p-radius (.GetRadius ps)
         cppn-fn (morpho-cppn-fn cppn)
         mdata (morpho-data cppn-fn p-radius [0 0] [creature-width creature-height])
-        coords (mapcat :coords mdata)
+        coords (->> mdata
+                    (filter #(= :muscle (:tissue %)))
+                    (mapcat :coords))
         valid-cre? (>= (count coords) min-creature-particles)]
     (if valid-cre?
       (do
