@@ -466,11 +466,14 @@
                      ins
                      (random/split-n r1 (count ins))
                      (random/split-n r2 (count ins)))
+        n-tfs (count (filter #(= ::gene (::element-type %))
+                             (::elements grn)))
+        input-tf? (set (map #(mod % n-tfs) new-ins))
         new-outs (map (fn [id ra rb]
                         (if (< (random/rand-double ra) prob)
-                          ;; outputs are not allowed to be direct inputs (??)
-                          (util/rand-nth rb (->> (range 1000)
-                                                 (remove (set new-ins))))
+                          ;; outputs are not allowed to be direct inputs
+                          (util/rand-nth rb (->> (range n-tfs)
+                                                 (remove input-tf?)))
                           id))
                       outs
                       (random/split-n r3 (count outs))
