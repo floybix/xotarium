@@ -76,10 +76,13 @@
 (defn mutate
   [genome rng]
   (let [{:keys [grn cppn]} genome
-        [rng rng*] (random/split rng)]
-    (assoc genome
-           :cppn (cppn/mutate-with-perturbation cppn rng* {})
-           :grn (grn/mutate grn rng))))
+        [rng rng*] (random/split rng)
+        ncppn (cppn/mutate-with-perturbation cppn rng* {})
+        [ngrn mut-info] (grn/mutate grn rng)]
+    [(assoc genome
+            :cppn ncppn
+            :grn ngrn)
+     mut-info]))
 
 (defn crossover
   [g1 g2 rng]

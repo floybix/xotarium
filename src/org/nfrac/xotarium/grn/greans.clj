@@ -85,8 +85,8 @@
 (defn random-unit
   [rng]
   (let [[r1 r2 r3 r4] (random/split-n rng 4)
-        npr (+ 1 (util/rand-int r1 3))
-        ntf (+ 1 (util/rand-int r2 3))]
+        npr (util/rand-int r1 1 3)
+        ntf (util/rand-int r2 1 3)]
     (concat (map #(random-element % ::promoter) (random/split-n r3 npr))
             (map #(random-element % ::gene) (random/split-n r4 ntf)))))
 
@@ -192,8 +192,7 @@
         all-prs (mapcat :promoters units)
         all-tfs (mapcat :genes units)
         ;; pr -> {tf -> infl}
-        pr-influences (mapv #(promoter-influences % all-tfs) all-prs)
-        ]
+        pr-influences (mapv #(promoter-influences % all-tfs) all-prs)]
     (merge
      (select-keys cg [::input-tfs ::output-tfs ::parameters])
      {::unit-promoters unit-promoters
@@ -351,12 +350,23 @@
          cprob :mut-coord-prob
          sprob :mut-sign-prob
          tprob :mut-type-prob} (::parameters grn)
-         es (::elements grn)]
-    (assoc grn ::elements
-           (map (fn [e r]
-                  (element-mutate e max-mag cprob sprob tprob r))
-                es
-                (random/split-n rng (count es))))))
+         es (::elements grn)
+         new-es (map (fn [e r]
+                       (element-mutate e max-mag cprob sprob tprob r))
+                     es
+                     (random/split-n rng (count es)))
+         diff-coords (->> (map vector es new-es)
+                          (filter (fn [[a b]] (not= (::coords a) (::coords b)))))
+         diff-signs (->> (map vector es new-es)
+                         (filter (fn [[a b]] (not= (::sign a) (::sign b)))))
+         diff-types (->> (map vector es new-es)
+                         (filter (fn [[a b]] (not= (::element-type a) (::element-type b)))))]
+    (assoc grn
+           ::last-mutation (assoc (::last-mutation grn)
+                                  :coords (count diff-coords)
+                                  :signs (count diff-signs)
+                                  :types (count diff-types))
+           ::elements new-es)))
 
 (defn mutate-elements
   [grn rng]
@@ -385,10 +395,12 @@
         i0 (util/rand-int r1 (count es))
         n (util/rand-int r2 1 (- (count es) i0))
         to (util/rand-int r3 (inc (count es)))]
-    (assoc grn ::elements
-           (concat (take to es)
-                   (take n (drop i0 es))
-                   (drop to es)))))
+    (assoc grn
+           ::last-mutation (assoc (::last-mutation grn)
+                                  :duplication [i0 n to])
+           ::elements (concat (take to es)
+                              (take n (drop i0 es))
+                              (drop to es)))))
 
 (s/fdef genome-duplication
         :args (s/cat :grn ::grn
@@ -405,9 +417,11 @@
     (if (pos? max-possible-deletion)
       (let [n (util/rand-int r1 1 (inc max-possible-deletion))
             i0 (util/rand-int r2 (- (count es) n))]
-        (assoc grn ::elements
-              (concat (take i0 es)
-                      (drop (+ i0 n) es)))))))
+        (assoc grn
+               ::last-mutation (assoc (::last-mutation grn)
+                                      :deletion [i0 n])
+               ::elements (concat (take i0 es)
+                                  (drop (+ i0 n) es)))))))
 
 (defn genome-deletion
   [grn rng]
@@ -434,22 +448,35 @@
   [grn prob rng]
   (let [ins (::input-tfs grn)
         outs (::output-tfs grn)
-        [r1 r2 r3 r4] (random/split-n rng 4)]
+        [r1 r2 r3 r4] (random/split-n rng 4)
+        new-ins (map (fn [id ra rb]
+                       (if (< (random/rand-double ra) prob)
+                         (util/rand-int rb 100)
+                         id))
+                     ins
+                     (random/split-n r1 (count ins))
+                     (random/split-n r2 (count ins)))
+        new-outs (map (fn [id ra rb]
+                        (if (< (random/rand-double ra) prob)
+                          ;; outputs are not allowed to be direct inputs (??)
+                          (util/rand-nth rb (->> (range 1000)
+                                                 (remove (set new-ins))))
+                          id))
+                      outs
+                      (random/split-n r3 (count outs))
+                      (random/split-n r4 (count outs)))
+        diff-inputs (->> (map vector ins new-ins)
+                         (filter (fn [[a b]] (not= a b))))
+        diff-outputs (->> (map vector outs new-outs)
+                          (filter (fn [[a b]] (not= a b))))]
     (assoc grn
-           ::input-tfs (map (fn [id ra rb]
-                              (if (< (random/rand-double ra) prob)
-                                (util/rand-int rb 100)
-                                id))
-                            ins
-                            (random/split-n r1 (count ins))
-                            (random/split-n r2 (count ins)))
-           ::output-tfs (map (fn [id ra rb]
-                               (if (< (random/rand-double ra) prob)
-                                 (util/rand-int rb 1000)
-                                 id))
-                             outs
-                             (random/split-n r3 (count outs))
-                             (random/split-n r4 (count outs))))))
+           ::last-mutation (cond-> (::last-mutation grn)
+                             (not= ins new-ins)
+                             (assoc :inputs (count diff-inputs))
+                             (not= outs new-outs)
+                             (assoc :outputs (count diff-outputs)))
+           ::input-tfs new-ins
+           ::output-tfs new-outs)))
 
 (s/fdef genome-switch-io
         :args (s/cat :grn ::grn
@@ -471,10 +498,13 @@
 
 (defn mutate
   [grn rng]
-  (let [[r1 r2] (random/split-n rng 2)]
-    (-> grn
-        (mutate-elements r1)
-        (mutate-structure r2))))
+  (let [[r1 r2] (random/split-n rng 2)
+        ngrn (-> grn
+                 (assoc ::last-mutation {})
+                 (mutate-elements r1)
+                 (mutate-structure r2))]
+    [(dissoc ngrn ::last-mutation)
+     (::last-mutation ngrn)]))
 
 (defn crossover*
   [g1 g2 rng]
