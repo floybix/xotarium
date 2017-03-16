@@ -6,6 +6,7 @@
             [org.nfrac.xotarium.cppn-compile :as cc]
             [org.nfrac.xotarium.grn.greans :as grn]
             [org.nfrac.xotarium.plant-cave :as cave]
+            [org.nfrac.xotarium.grn.viz :as grnviz]
             [org.nfrac.liquidfun.testbed :as bed]
             [org.nfrac.liquidfun.core :as lf :refer [body! joint!
                                                      particle-system!]]
@@ -118,8 +119,12 @@
                cell-form (:grn-cell creature)
                input-tfs (->> (::grn/input-tfs cell-form)
                               (mapv #(mod % n-tfs)))
+               output-tfs (->> (::grn/output-tfs cell-form)
+                               (mapv #(mod % n-tfs)))
                input-syms grncre/beh-inputs
+               output-syms grncre/beh-outputs
                inp->i (zipmap input-syms input-tfs)
+               i->out (zipmap output-tfs output-syms)
                inps-by-range (->> input-syms
                                   (sort-by (fn [k]
                                              (let [id (inp->i k)
@@ -141,10 +146,17 @@
            (println)
            (println "__TFs__")
            (doseq [id tfs-by-range]
-             (println (format "%15s" id)
+             (println (format "%15s" (or (i->out id) id))
                       (format-lims (get tf-vs id)) "deltas"
                       (format-lims+ (get tf-dvs id))))
            (println)
+           mstate)
+      :s (let []
+           mstate)
+      :v (do
+           (grnviz/run (grnviz/grn-viz-data (:grn (:creature state))
+                                            grncre/beh-inputs
+                                            grncre/beh-outputs))
            mstate)
       :b (do
            (body! (:world state) {}
@@ -186,7 +198,8 @@
                     " / "
                     (count (:genomes mstate))
                     " (gen " (:generation genome) ")."
-                    " Keys: (n) next behaviour, (i) print TF info")
+                    " Keys: (n) next behaviour, (i) print TF info,"
+                    " (v) GRN viz, (s) sensitivity analysis")
                10 10)))
 
 (defn run
