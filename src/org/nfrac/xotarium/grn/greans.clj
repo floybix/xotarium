@@ -7,7 +7,9 @@
             [org.nfrac.xotarium.util :as util]
             [clojure.test.check.random :as random]))
 
-(def INIT_MAX_COORD 5.0)
+(def INIT_MAX_COORD 10.0)
+(def MAX_AFFINITY 5.0)
+(def AFFINITY_EPS 0.05)
 
 (def parameter-defaults
   {:mut-coord-mag 1.0
@@ -116,9 +118,6 @@
 (s/def ::tf-id nat-int?)
 (s/def ::promoter-id nat-int?)
 
-(def MAX_AFFINITY 10.0)
-(def AFFINITY_EPS 0.1)
-
 (s/def ::affinity (s/double-in :min 0.0 :max MAX_AFFINITY :NaN? false))
 (s/def ::influence (s/double-in :min (- MAX_AFFINITY) :max MAX_AFFINITY :NaN? false))
 (s/def ::concentration (s/double-in :min 0.0 :max 1.0 :NaN? false))
@@ -158,10 +157,18 @@
   [[ax ay] [bx by]]
   (let [d (Math/sqrt (+ (Math/abs (double (- bx ax)))
                         (Math/abs (double (- by ay)))))]
-    (let [aff (-> (Math/exp (* -1.0 d))
-                  (min MAX_AFFINITY))]
+    (let [aff (* MAX_AFFINITY
+                 (Math/exp (* -1.0 d)))]
       (when (>= aff AFFINITY_EPS)
         aff))))
+
+;; for viz / diagnostics
+(defn critical-affinity-distance
+  [aff]
+  (-> aff
+      (/ MAX_AFFINITY)
+      (Math/log)
+      (-)))
 
 (defn promoter-influences
   [pr tfs]
