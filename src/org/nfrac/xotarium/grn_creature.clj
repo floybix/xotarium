@@ -129,9 +129,9 @@
         tri-p (:triad-params creature)
         cell-form (:grn-cell creature)
         tri-concs (:tri-concs creature)
-        dt 0.05
+        dt (:dt (::grn/parameters (:grn creature)) 0.2)
         time (:time state)
-        freq 6.0
+        freq 8.0
         phase (mod (* time freq) (* 2.0 Math/PI))
         pf (:wall-prox-field state)
         y-lo (:y-lower-bound state)

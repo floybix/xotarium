@@ -17,6 +17,7 @@
             [quil.middleware]
             [clojure.pprint]
             [clojure.java.io :as io]
+            [clojure.core.async :as async]
             [clojure.spec :as s]
             [clojure.test.check.random :as random])
   (:import (org.bytedeco.javacpp
@@ -49,12 +50,25 @@
 (defn setup-current
   [genome seed]
   (when-let [state (grncre/setup genome seed)]
-    (assoc state ::step-i 0)))
+    (assoc state ::step-i 0
+           ::control-c (async/chan (async/sliding-buffer 1))
+           ::activity-c (async/chan (async/sliding-buffer 1)))))
+
+(defn control-grn
+  [state control-c]
+  (if-let [new-grn (async/poll! control-c)]
+    (-> state
+        (assoc-in [:creature :grn] new-grn)
+        (assoc-in [:creature :grn-cell] (grn/grn->cell new-grn)))
+    state))
 
 (defn step-current
   [pre-state]
   (let [state (-> (grncre/step pre-state)
-                  (update ::step-i inc))]
+                  (update ::step-i inc)
+                  (control-grn (::control-c pre-state)))]
+    (async/put! (::activity-c state)
+                (-> state :creature :tri-concs first val))
     (if (>= (::step-i state) warmup-steps)
       (let [creature (:creature state)
             grn-cell (:grn-cell creature)
@@ -84,7 +98,7 @@
                                                    (if (> d hi) d hi)]))
                                               tf-dvs concs pre-concs)))
                                [tf-vs tf-dvs]))]
-          (assoc state
+        (assoc state
                  ::tf-ranges tf-vs
                  ::tf-dranges tf-dvs))
       ;; warmup
@@ -139,6 +153,7 @@
                                               (- hi lo))) >))]
            (println)
            (println "step" (::step-i state) "time" (format "%.2f" (:time state)))
+           (println "outputs:" i->out)
            (println "__inputs__")
            (doseq [k inps-by-range
                    :let [id (get inp->i k)]]
@@ -156,10 +171,11 @@
       :s (let []
            mstate)
       :v (let [grn (:grn (:creature state))]
-           (grnviz/run {:data (grnviz/grn-viz-data grn
-                                                   grncre/beh-inputs
-                                                   grncre/beh-outputs)
-                        :parameters (::grn/parameters grn)})
+           (grnviz/run {:grn grn
+                        :input-syms grncre/beh-inputs
+                        :output-syms grncre/beh-outputs}
+             (::control-c state)
+             (::activity-c state))
             mstate)
       :b (do
            (body! (:world state) {}

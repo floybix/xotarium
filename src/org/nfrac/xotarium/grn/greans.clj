@@ -9,8 +9,9 @@
 
 (def parameter-defaults
   {:init-max-coord 10.0
-   :max-affinity 5.0
+   :max-affinity 10.0
    :affinity-eps 0.05
+   :dt 0.2
    ;; mutation
    :mut-coord-mag 1.0
    :mut-coord-prob 0.08
@@ -226,10 +227,12 @@
   [cell pr-ids]
   (let [influences (::influences cell)
         concs (::concs cell)]
-    (reduce (fn [a pr-id]
-              (+ a (promoter-activation pr-id influences concs)))
-            0.0
-            pr-ids)))
+    (->
+     (reduce (fn [a pr-id]
+               (+ a (promoter-activation pr-id influences concs)))
+             0.0
+             pr-ids)
+     (max 0.0))))
 
 (defn conc-rate-of-change
   ^double [^double conc ^double unit-activation]
