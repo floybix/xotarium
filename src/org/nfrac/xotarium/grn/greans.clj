@@ -63,6 +63,13 @@
 (s/def ::parameters
   (s/keys))
 
+(defn outputs-are-indirect?
+  [cgrn]
+  (let [{els ::elements, input-tfs ::input-tfs, output-tfs ::output-tfs} cgrn
+        n-tfs (count (mapcat :genes (:units els)))
+        input-tf? (set (map #(mod % n-tfs) input-tfs))]
+    (not-any? input-tf? output-tfs)))
+
 (s/def ::grn
   (s/and
    (s/keys :req [::elements
@@ -71,7 +78,8 @@
                  ::parameters])
    #(>= (count (:units (::elements %)))
         (+ (count (::input-tfs %))
-           (count (::output-tfs %))))))
+           (count (::output-tfs %))))
+   outputs-are-indirect?))
 
 (comment
   (s/exercise ::gene)
@@ -191,7 +199,8 @@
 (defn grn->cell
   [grn]
   (let [cg (s/conform ::grn grn)
-        _ (when (= cg ::s/invalid) (s/explain ::grn grn))
+        _ (when (= cg ::s/invalid) (s/explain ::grn grn)
+                (throw (Exception. "invalid GRN, aborting.")))
         input-tf? (set (::input-tfs grn))
         units (:units (::elements cg))
         unit-promoters (index-counts (map #(count (:promoters %)) units) 0)
