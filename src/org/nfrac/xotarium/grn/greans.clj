@@ -11,7 +11,7 @@
   {:init-max-coord 10.0
    :max-affinity 10.0
    :affinity-eps 0.05
-   :dt 0.05
+   :dt 0.1
    ;; mutation
    :mut-coord-mag 1.0
    :mut-coord-prob 0.08
@@ -68,7 +68,7 @@
   (let [{els ::elements, input-tfs ::input-tfs, output-tfs ::output-tfs} cgrn
         n-tfs (count (mapcat :genes (:units els)))
         input-tf? (set (map #(mod % n-tfs) input-tfs))]
-    (not-any? input-tf? output-tfs)))
+    (not-any? input-tf? (map #(mod % n-tfs) output-tfs))))
 
 (s/def ::grn
   (s/and
@@ -333,8 +333,6 @@
 
 ;;; mutation etc
 
-(def MUT_ATTEMPTS 8)
-
 (s/def ::probability
   (s/double-in :min 0.0 :max 1.0 :NaN? false))
 
@@ -366,6 +364,23 @@
                      :rng ::util/rng)
         :ret ::element)
 
+(def MUT_ATTEMPTS 8)
+
+(defn attempt-modification
+  [grn rng print-name f]
+  (loop [attempt 1
+         rng rng]
+    (let [[rng rng*] (random/split rng)
+          grn2 (f grn rng*)]
+      (if (s/valid? ::grn grn2)
+        grn2
+        (if (>= attempt MUT_ATTEMPTS)
+          (do
+            (when print-name
+              (println print-name "invalid after" MUT_ATTEMPTS "attempts."))
+            grn)
+          (recur (inc attempt) rng))))))
+
 (defn mutate-elements*
   [grn rng]
   (let [{max-mag :mut-coord-mag
@@ -392,25 +407,14 @@
 
 (defn mutate-elements
   [grn rng]
-  (loop [attempt 1
-         rng rng]
-    (let [[rng rng*] (random/split rng)
-          grn2 (mutate-elements* grn rng*)]
-      (if (s/valid? ::grn grn2)
-        grn2
-        (if (>= attempt MUT_ATTEMPTS)
-          (do
-            (println "mutate-elements invalid after" MUT_ATTEMPTS "attempts.")
-            (s/explain ::grn grn2)
-            grn)
-          (recur (inc attempt) rng))))))
+  (attempt-modification grn rng "mutate-elements" mutate-elements*))
 
 (s/fdef mutate-elements
         :args (s/cat :grn ::grn
                      :rng ::util/rng)
         :ret ::grn)
 
-(defn genome-duplication
+(defn genome-duplication*
   [grn rng]
   (let [es (::elements grn)
         [r1 r2 r3] (random/split-n rng 3)
@@ -423,6 +427,10 @@
            ::elements (concat (take to es)
                               (take n (drop i0 es))
                               (drop to es)))))
+
+(defn genome-duplication
+  [grn rng]
+  (attempt-modification grn rng "genome-duplication" genome-duplication*))
 
 (s/fdef genome-duplication
         :args (s/cat :grn ::grn
@@ -447,19 +455,7 @@
 
 (defn genome-deletion
   [grn rng]
-  #_
-  {:pre [(s/valid? ::grn grn)]}
-  (loop [attempt 1
-         rng rng]
-    (let [[rng rng*] (random/split rng)
-          grn2 (genome-deletion* grn rng*)]
-      (if (s/valid? ::grn grn2)
-        grn2
-        (if (>= attempt MUT_ATTEMPTS)
-          (do
-            (println "genome-deletion invalid after" MUT_ATTEMPTS "attempts.")
-            grn)
-          (recur (inc attempt) rng))))))
+  (attempt-modification grn rng "genome-deletion" genome-deletion*))
 
 (s/fdef genome-deletion
         :args (s/cat :grn ::grn
@@ -470,17 +466,22 @@
   [grn prob rng]
   (let [ins (::input-tfs grn)
         outs (::output-tfs grn)
+        n-tfs (count (filter #(= ::gene (::element-type %))
+                             (::elements grn)))
+        outset (set (map #(mod % n-tfs) outs))
+        output-tf? #(outset (mod % n-tfs))
         [r1 r2 r3 r4] (random/split-n rng 4)
         new-ins (map (fn [id ra rb]
                        (if (< (random/rand-double ra) prob)
-                         (util/rand-int rb 100)
+                         ;; outputs are not allowed to be direct inputs
+                         (util/rand-nth rb (->> (range 100)
+                                                (remove output-tf?)))
                          id))
                      ins
                      (random/split-n r1 (count ins))
                      (random/split-n r2 (count ins)))
-        n-tfs (count (filter #(= ::gene (::element-type %))
-                             (::elements grn)))
-        input-tf? (set (map #(mod % n-tfs) new-ins))
+        inset (set (map #(mod % n-tfs) ins))
+        input-tf? #(inset (mod % n-tfs))
         new-outs (map (fn [id ra rb]
                         (if (< (random/rand-double ra) prob)
                           ;; outputs are not allowed to be direct inputs
@@ -544,21 +545,7 @@
 
 (defn crossover
   [g1 g2 rng]
-  #_
-  {:pre [(s/valid? ::grn g1)
-         (s/valid? ::grn g2)]}
-  (loop [attempt 1
-         rng rng]
-    (let [[rng rng*] (random/split rng)
-          grn2 (crossover* g1 g2 rng*)]
-      (if (s/valid? ::grn grn2)
-        grn2
-        (if (>= attempt MUT_ATTEMPTS)
-          (do
-            (println "crossover invalid after" MUT_ATTEMPTS "attempts.")
-            (s/explain ::grn grn2)
-            g1)
-          (recur (inc attempt) rng))))))
+  (attempt-modification g1 rng "crossover" #(crossover* % g2 %2)))
 
 (s/fdef crossover
         :args (s/cat :g1 ::grn
