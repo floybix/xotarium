@@ -169,7 +169,7 @@
            (println)
            mstate)
       :s (let []
-           mstate)
+           (update mstate :draw-cell-signals? #(not %)))
       :v (let [grn (:grn (:creature state))]
            (grnviz/run {:grn grn
                         :input-syms grncre/beh-inputs
@@ -209,9 +209,50 @@
      :n-behs (count beh-archive)
      :current (setup-current (get genomes genome-index) seed)}))
 
+(defn draw-cell-signals
+  [state]
+  (let [ps ^liquidfun$b2ParticleSystem (:particle-system state)
+        cam (:camera state)
+        px-scale (bed/world-to-px-scale cam)
+        ;; inlined version of world-to-px
+        [cx cy] (:center cam)
+        x-left (- cx (* 0.5 (:width cam)))
+        y-bottom (- cy (* 0.5 (:height cam)))
+        y-top (+ y-bottom (:height cam))
+        ;; creature info
+        creature (:creature state)
+        cell-form (:grn-cell creature)
+        tri-concs (:tri-concs creature)
+        n-tfs (count (first (vals tri-concs)))
+        ;; messengers must start at output index 1:
+        [msgr-a msgr-b msgr-c] (->> (drop 1 (::grn/output-tfs cell-form))
+                                    (map #(mod % n-tfs)))
+        handle->px (fn [^liquidfun$b2ParticleHandle h]
+                     (let [i (.GetIndex h)
+                           x (.GetParticlePositionX ps i)
+                           y (.GetParticlePositionY ps i)
+                           x-px (* (- x x-left) px-scale)
+                           y-px (* (- y-top y) px-scale)]
+                       [x-px y-px]))
+        ]
+    (quil/no-stroke)
+    (doseq [[handles concs] tri-concs]
+      (let [[h1 h2 h3] handles
+            [x1 y1] (handle->px h1)
+            [x2 y2] (handle->px h2)
+            [x3 y3] (handle->px h3)
+            r (-> (get concs msgr-a) (* 255))
+            g (-> (get concs msgr-b) (* 255))
+            b (-> (get concs msgr-c) (* 255))
+            alpha 255]
+        (quil/fill r g b alpha)
+        (quil/triangle x1 y1 x2 y2 x3 y3)))))
+
 (defn draw
   [mstate]
   (bed/draw (:current mstate) true)
+  (when (:draw-cell-signals? mstate)
+    (draw-cell-signals (:current mstate)))
   (let [gi (:genome-index mstate)
         genome (get (:genomes mstate) gi)
         n-behs (:n-behs mstate)
@@ -223,7 +264,7 @@
                       (str (- gi n-behs) " / " n-popn " indiv."))
                     " (gen " (:generation genome) ")."
                     " Keys: (n) next behaviour, (i) print TF info,"
-                    " (v) GRN viz, (s) sensitivity analysis")
+                    " (v) GRN viz, (s) draw signals")
                10 10)))
 
 (defn run
