@@ -32,6 +32,7 @@
             liquidfun$b2QueryCallback)))
 
 (def max-sensed-velocity 8.0)
+(def grn-steps-per-physics-step 3)
 
 ;; this list should match the args passed to grn/step!
 (def beh-inputs '[bias
@@ -247,9 +248,12 @@
                              down-vel
                              right-vel
                              left-vel]
-                         nc (::grn/concs
-                             (grn/step cell ic dt))]
-                     (assoc! m handles nc)))
+                         ncell (->> cell
+                                    (iterate #(grn/step % ic dt))
+                                    (rest)
+                                    (take grn-steps-per-physics-step)
+                                    (last))]
+                     (assoc! m handles (::grn/concs ncell))))
                  (transient {})
                  tri-concs))
         work-fn (fn [handles params]

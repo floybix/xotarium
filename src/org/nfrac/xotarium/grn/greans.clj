@@ -11,7 +11,7 @@
   {:init-max-coord 10.0
    :max-affinity 10.0
    :affinity-eps 0.05
-   :dt 0.2
+   :dt 0.05
    ;; mutation
    :mut-coord-mag 1.0
    :mut-coord-prob 0.08
