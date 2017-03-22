@@ -40,6 +40,9 @@
                   factor-a
                   factor-b
                   factor-c
+                  message-a
+                  message-b
+                  message-c
                   wall-touch
                   wall-smell
                   self-touch
@@ -53,15 +56,12 @@
                   right-vel
                   left-vel
                   ])
-#_[message-a
-   message-b
-   message-c]
 
-(def beh-outputs '[expansion])
-#_[messenger-a
-   messenger-b
-   messenger-c
-   oscillator-freq]
+(def beh-outputs '[expansion
+                   messenger-a
+                   messenger-b
+                   messenger-c
+                   ])
 
 (s/def ::genome
   (s/keys :req-un [::cppn/cppn
@@ -92,16 +92,43 @@
   [g1 g2 rng]
   (assoc g1 :grn (grn/crossover (:grn g1) (:grn g2) rng)))
 
+(defn- update!
+  [t-m k f & args]
+  (assoc! t-m k (apply f (get t-m k) args)))
+
+(defn triad-neighbours
+  [tris]
+  (let [by-handle (persistent!
+                   (reduce (fn [m [h1 h2 h3 :as tri]]
+                             (-> m
+                                 (update! h1 conj tri)
+                                 (update! h2 conj tri)
+                                 (update! h3 conj tri)))
+                           (transient {})
+                           tris))]
+    (persistent!
+     (reduce (fn [m [h1 h2 h3 :as tri]]
+               (assoc! m tri (->> (concat
+                                   (get by-handle h1)
+                                   (get by-handle h2)
+                                   (get by-handle h3))
+                                  (remove #(= tri %))
+                                  (distinct))))
+             (transient {})
+             tris))))
+
 (defn come-alive
   [world genome]
   (when-let [creature-body (cre/make-creature world (:cppn genome))]
     (let [grn (:grn genome)
           tri-p (:triad-params creature-body)
+          tri-nbs (triad-neighbours (keys tri-p))
           cell-form (grn/grn->cell grn)
           tri-concs (zipmap (keys tri-p)
                             (repeat (::grn/concs cell-form)))]
       (assoc creature-body
             :tri-concs tri-concs
+            :tri-nbs tri-nbs
             :grn-cell cell-form
             :grn grn))))
 
@@ -130,6 +157,11 @@
         tri-p (:triad-params creature)
         cell-form (:grn-cell creature)
         tri-concs (:tri-concs creature)
+        tri-nbs (:tri-nbs creature)
+        n-tfs (count (first (vals tri-concs)))
+        ;; messengers must start at output index 1:
+        [msgr-a msgr-b msgr-c] (->> (drop 1 (::grn/output-tfs cell-form))
+                                    (map #(mod % n-tfs)))
         dt (:dt (::grn/parameters (:grn creature)) 0.2)
         time (:time state)
         freq 8.0
@@ -227,6 +259,14 @@
                                                     [(+ or r) (+ og g) (+ ob b)])
                                                   [0.0 0.0 0.0]
                                                   colors)
+                         nbs (get tri-nbs handles)
+                         [msg-a msg-b msg-c] (reduce (fn [[ma mb mc] nb]
+                                                       (let [cs (get tri-concs nb)]
+                                                         [(+ ma (cs msgr-a))
+                                                          (+ mb (cs msgr-b))
+                                                          (+ mc (cs msgr-c))]))
+                                                     [0.0 0.0 0.0]
+                                                     nbs)
                          cell (assoc cell-form ::grn/concs concs)
                          phase-off (:phase-off params)
                          osc (if (pos? (Math/sin (+ phase phase-off)))
@@ -236,6 +276,9 @@
                              (:factor-a params)
                              (:factor-b params)
                              (:factor-c params)
+                             (min msg-a 1.0)
+                             (min msg-b 1.0)
+                             (min msg-c 1.0)
                              wall-touch
                              wall-smell
                              self-touch
@@ -260,6 +303,7 @@
                   (let [concs (get tri-concs handles)
                         cell (assoc cell-form ::grn/concs concs)
                         g-out (grn/cell-outputs cell)
+                        ;; expansion must be first output
                         expan (-> (first g-out) (* 2.0) (- 1.0))]
                     expan))]
     (cre/creature-flex ps (:triad-params creature) work-fn)
