@@ -118,15 +118,13 @@
         ps ^liquidfun$b2ParticleSystem (:particle-system state)]
     (case (:key event)
       :n (loop [i (:genome-index mstate)]
-           (let [i+ (inc i)
+           (let [i+ (mod (inc i) (count (:genomes mstate)))
                  genome (get (:genomes mstate) i+)
                  seed (:seed mstate)]
-             (when-not genome
-               (System/exit 0))
              (if-let [state (setup-current genome seed)]
                (assoc mstate
-                     :genome-index i+
-                     :current state)
+                      :genome-index i+
+                      :current state)
                (recur (inc i)))))
       :i (let [tf-vs (::tf-ranges state)
                tf-dvs (::tf-dranges state)
