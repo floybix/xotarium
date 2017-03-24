@@ -9,6 +9,7 @@
             [org.nfrac.liquidfun.core :as lf :refer [body! joint!
                                                      particle-system!]]
             [org.nfrac.liquidfun.vec2d :as v2d]
+            [org.nfrac.xotarium.util :as util]
             [org.nfrac.xotarium.util.algo-graph :as graph]
             [quil.core :as quil :include-macros true]
             [quil.middleware]
@@ -32,7 +33,8 @@
             liquidfun$b2QueryCallback)))
 
 (def max-sensed-velocity 8.0)
-(def grn-steps-per-physics-step 3)
+(def grn-steps-per-physics-step 2)
+(def init-osc-exp-coord-dist 0.3)
 
 ;; this list should match the args passed to grn/step!
 (def beh-inputs '[bias
@@ -63,15 +65,49 @@
                    messenger-c
                    ])
 
+(defn index-of
+  [x coll]
+  (some (fn [[i s]] (when (= s x) i))
+        (map-indexed vector coll)))
+
 (s/def ::genome
   (s/keys :req-un [::cppn/cppn
                    ::grn/grn]))
 
+(defn force-oscillation
+  "Move promoter of expansion close to oscillator."
+  [grn rng]
+  (let [[r1 r2] (random/split rng)
+        cg (s/conform ::grn/grn grn)
+        units (:units (::grn/elements cg))
+        unit-tfs (grn/index-counts (map #(count (:genes %)) units) 0)
+        tf->unit-id (into {}
+                          (mapcat (fn [i tfs]
+                                    (map vector tfs (repeat i)))
+                                  (range)
+                                  unit-tfs))
+        tf->gene-idx (into {}
+                           (mapcat (fn [tfs]
+                                     (map vector tfs (range)))
+                                   unit-tfs))
+        osc-tf (nth (::grn/input-tfs grn) (index-of 'oscillator beh-inputs))
+        exp-tf (nth (::grn/output-tfs grn) (index-of 'expansion beh-outputs))
+        osc-coords (get-in cg [::grn/elements :units (tf->unit-id osc-tf)
+                               :genes (tf->gene-idx osc-tf) ::grn/coords])
+        z init-osc-exp-coord-dist
+        updat-cg (assoc-in cg [::grn/elements :units (tf->unit-id exp-tf)
+                               :promoters 0 ::grn/coords]
+                           (v2d/v-add osc-coords [(util/rand r1 (- z) z)
+                                                  (util/rand r2 (- z) z)]))]
+    (s/unform ::grn/grn updat-cg)))
+
 (defn random-genome
   [rng grn-parameters]
   (let [cppn cre/seed-cppn
-        grn (grn/random-grn (count beh-inputs) (count beh-outputs) rng
-                            grn-parameters)]
+        [r1 r2] (random/split-n rng 2)
+        grn* (grn/random-grn (count beh-inputs) (count beh-outputs) r1
+                             grn-parameters)
+        grn (force-oscillation grn* r2)]
     {:cppn cppn
      :grn grn}))
 
