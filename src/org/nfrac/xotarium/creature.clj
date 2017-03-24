@@ -30,7 +30,7 @@
 (def creature-width 1.8)
 (def creature-height 1.8)
 (def min-creature-particles 10)
-(def muscle-strength 0.6)
+(def muscle-strength 0.9)
 
 ;; interpretation:
 ;; if muscle is positive, express muscle.
@@ -47,12 +47,13 @@
    :edges {:i0 {:d -1.0}
            :factor-a {:x 1.0}
            :factor-b {:y 1.0}
-           :factor-c {:i0 0.5}
-           :phase-off {:x 1.0}
-           :angle {:i0 0.5}
-           :bone {:i0 0.5
-                  :bias -0.2}
-           :muscle {:factor-c 1.0}}})
+           :factor-c {:d 0.5}
+           :phase-off {:x 2.0}
+           :angle {:factor-a 1.0}
+           :bone {:i0 1.0
+                  :bias -0.3}
+           :muscle {:factor-c -1.0
+                    :factor-a 1.0}}})
 
 (defn hex-neighbours
   "Returns hexagonal coordinates linked to their immediate neighbours.
@@ -385,21 +386,12 @@
 (defn setup
   []
   (let [;world (cave/build-world)
-        world (-> (cave/setup) (cave/do-add-air) :world)
-        ps ^liquidfun$b2ParticleSystem (first (lf/particle-sys-seq world))
+        state (-> (cave/setup)
+                  (cave/do-add-air))
         cppn seed-cppn
-        creature (make-creature world cppn)]
-      (assoc bed/initial-state
-             :world world
-             :ground (->> (lf/bodyseq world)
-                          (filter #(= :static (lf/body-type %)))
-                          (first))
-             :particle-system ps
-             :creature creature
-             :particle-iterations 3
-             :camera (bed/map->Camera {:width cave/cave-width
-                                       :height cave/cave-height
-                                       :center [0 0]}))))
+        creature (make-creature (:world state) cppn)]
+      (assoc state
+             :creature creature)))
 
 (defn post-step
   [state]
