@@ -343,6 +343,8 @@
                         expan (-> (first g-out) (* 2.0) (- 1.0))]
                     expan))]
     (cre/creature-flex ps (:triad-params creature) work-fn)
+    (doseq [grp (mapcat val (:groups creature))]
+      (cave/group-apply-gravity grp cre/p-gravity))
     (cave/groups-restore-color ps (:muscle (:groups creature)) [255 0 0 255])
     (cave/groups-restore-color ps [(::cave/green-source state)] [0 255 0 255])
     (cave/groups-restore-color ps [(::cave/blue-source state)] [0 0 255 255])

@@ -31,6 +31,7 @@
 (def creature-height 1.8)
 (def min-creature-particles 10)
 (def muscle-strength 0.9)
+(def p-gravity [0.0 -0.5])
 
 ;; interpretation:
 ;; if muscle is positive, express muscle.
@@ -405,6 +406,8 @@
                     (Math/sin (+ phase phase-off))))]
     (when creature
       (creature-flex ps (:triad-params creature) work-fn)
+      (doseq [grp (mapcat val (:groups creature))]
+        (cave/group-apply-gravity grp p-gravity))
       (cave/groups-restore-color ps (:muscle (:groups creature)) [255 0 0 255]))
     (when (zero? (mod (int (/ time (:dt-secs state))) cave/decay-every-n-steps))
       (cave/group-decay-color ps (::cave/air-pg state) cave/decay-factor))

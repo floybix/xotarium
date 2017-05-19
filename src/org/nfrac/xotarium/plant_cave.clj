@@ -494,6 +494,12 @@
           (.multiplyPut c factor)
           (recur (inc i)))))))
 
+(defn group-apply-gravity
+  [^liquidfun$b2ParticleGroup pg [fx fy]]
+  (let [n (.GetParticleCount pg)
+        gv (lf/vec2 (* fx n) (* fy n))]
+    (.ApplyForce pg gv)))
+
 (defn my-key-press
   [state event]
   (let [ps ^liquidfun$b2ParticleSystem (:particle-system state)]
