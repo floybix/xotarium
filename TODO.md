@@ -1,7 +1,11 @@
 
+* s/pressure/depth/
+* s/air/water/
 
-* require some muscles
 
+* semi-persistence mechanism - a ratchet? - for e.g. responding to touch.
+  - epigenetic marks?
+  - could affinity/influence > 1 be enough?
 
 
 * perf
@@ -16,9 +20,16 @@
 * separate enviro seed from evo seed
 
 
+* return cppn mutation info
 
 
-* apply gravity force to creatures (not air)
+
+
+* movement model
+  - do we need phase-off?
+  - do we need oscillator? (vs internal cycles)
+  - should GRN output adjust frequency (oscillator-freq)
+
 
 * larger / composite caves
 
@@ -66,4 +77,6 @@
 * energy balance / survival time
 
 * coevolution of carnivores and herbivores
+  - consume cell by cell?
+  - delay cell death to after sensing & messaging
 
