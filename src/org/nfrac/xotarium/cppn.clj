@@ -5,6 +5,13 @@
             [clojure.spec.gen :as gen]
             [clojure.test.check.random :as random]))
 
+(s/def ::probability
+  (s/double-in :min 0.0 :max 1.0 :NaN? false))
+
+(s/def ::weight-perturbation
+  (-> (s/double-in :min 0.0 :max 50.0 :NaN? false)
+      (s/with-gen #(s/gen (s/double-in :min 0.0 :max 1.5 :NaN? false)))))
+
 (def parameter-defaults
   {:add-node-prob 0.1
    :add-conn-prob 0.2
@@ -32,7 +39,7 @@
 (def auto-node-types
   #{:linear :gaussian :sigmoid :sine})
 
-(s/def ::node-id (-> any? (s/with-gen #(s/gen ident?))))
+(s/def ::node-id keyword?)
 (s/def ::inputs (s/coll-of ::node-id, :min-count 1, :kind set?))
 (s/def ::outputs (s/coll-of ::node-id, :min-count 1, :kind set?))
 (s/def ::nodes (s/map-of ::node-id all-node-types, :min-count 1))
@@ -40,11 +47,23 @@
 (s/def ::node-edges (s/map-of ::node-id ::weight))
 (s/def ::edges (s/map-of ::node-id ::node-edges, :min-count 1))
 
+(defn acyclic? [g]
+  (empty? (graph/self-recursive-sets g)))
+
+(declare cppn-graph)
+
 (s/def ::cppn
-  (s/keys :req-un [::inputs
-                   ::outputs
-                   ::nodes
-                   ::edges]))
+  (->
+   (s/and
+    (s/keys :req-un [::inputs
+                     ::outputs
+                     ::nodes
+                     ::edges])
+    #(not-any? (::outputs %) (::inputs %))
+    #(not-any? (::inputs %) (::outputs %))
+    #(acyclic? (cppn-graph %))
+    #(graph/dependency-list (cppn-graph %)))
+   (s/with-gen #(gen/return example-cppn))))
 
 (defn remap
   "Transforms a map `m` applying function `f` to each value."
@@ -107,6 +126,11 @@
           cppn
           (map vector (edge-list cppn) ws)))
 
+(s/fdef set-cppn-weights
+        :args (s/cat :cppn ::cppn
+                     :ws (s/coll-of ::weight))
+        :ret ::cppn)
+
 (defn rand-skew
   [rng max power]
   (-> (util/rand rng (Math/pow max (/ 1 power)))
@@ -137,6 +161,14 @@
         (update :edges assoc id {from1 w2})
         ;(update-in [:edges before] dissoc from1)
         (update-in [:edges before] assoc id w3))))
+
+(s/fdef mutate-add-node-before
+        :args (s/and
+               (s/cat :cppn ::cppn
+                      :before ::node-id
+                      :rng ::util/rng)
+               #(contains? (:edges (:cppn %)) (:before %)))
+        :ret ::cppn)
 
 (defn mutate-add-node
   [cppn rng]
@@ -172,6 +204,11 @@
         from (util/rand-nth r1 (keys (:edges cppn)))]
     (mutate-add-conn-to cppn from r2)))
 
+(s/fdef mutate-add-conn
+        :args (s/cat :cppn ::cppn
+                     :rng ::util/rng)
+        :ret ::cppn)
+
 (defn mutate-rewire-conn
   [cppn rng]
   (let [[r1 r2 r3] (random/split-n rng 3)
@@ -186,6 +223,11 @@
           (update-in [:edges to-node] dissoc rm-from)
           (assoc-in [:edges to-node new-from] old-w))
       cppn)))
+
+(s/fdef mutate-rewire-conn
+        :args (s/cat :cppn ::cppn
+                     :rng ::util/rng)
+        :ret ::cppn)
 
 (defn delete-node
   [cppn node]
@@ -217,6 +259,12 @@
     (assoc-in cppn [:edges node-a node-b] 1.0)
     (assoc-in cppn [:edges node-b node-a] 1.0)))
 
+(s/fdef link-nodes
+        :args (s/cat :cppn ::cppn
+                     :node-a ::node-id
+                     :node-b ::node-id)
+        :ret ::cppn)
+
 (defn remove-edge
   [cppn from to]
   (update-in cppn [:edges to]
@@ -226,6 +274,12 @@
                  (if (empty? m)
                    (assoc m (rand-nth (seq (:inputs cppn))) 1.0)
                    m)))))
+
+(s/fdef remove-edge
+        :args (s/cat :cppn ::cppn
+                     :from ::node-id
+                     :to ::node-id)
+        :ret ::cppn)
 
 (defn interp
   [from to z]
@@ -247,6 +301,12 @@
                      ws
                      (random/split-n rng (count ws)))]
     (set-cppn-weights cppn new-ws)))
+
+(s/fdef randomise-weights
+        :args (s/cat :cppn ::cppn
+                     :perturbation ::weight-perturbation
+                     :rng ::util/rng)
+        :ret ::cppn)
 
 (defn mutate-structure
   [cppn rng parameters]
