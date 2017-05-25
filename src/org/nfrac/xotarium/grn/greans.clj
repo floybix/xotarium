@@ -57,11 +57,14 @@
          :units (s/+ ::regulatory-unit)
          :tail-ignored (s/* ::promoter)))
 
+(s/def ::tf-id (-> nat-int? (s/with-gen #(s/gen (s/int-in 0 100)))))
+
 (s/def ::output-tfs (s/coll-of nat-int? :min-count 1))
 (s/def ::input-tfs (s/coll-of nat-int? :min-count 1))
 
 (s/def ::parameters
-  (s/keys))
+  (-> (s/keys)
+      (s/with-gen #(gen/return parameter-defaults))))
 
 (defn outputs-are-indirect?
   [cgrn]
@@ -101,6 +104,18 @@
     (concat (map #(random-element % ::promoter max-coord) (random/split-n r3 npr))
             (map #(random-element % ::gene max-coord) (random/split-n r4 ntf)))))
 
+(defn count-tfs
+  "Number of TFs, in regulatory units only. Faster than conforming regex etc."
+  [els]
+  (->> els
+       (drop-while #(= ::gene (::element-type %)))
+       (filter #(= ::gene (::element-type %)))
+       (count)))
+
+(s/fdef count-tfs
+        :args (s/cat :els ::elements)
+        :ret nat-int?)
+
 (defn random-grn
   [n-in n-out rng parameters]
   (let [n-units (+ n-in n-out 1)
@@ -108,7 +123,7 @@
         [r1 r2] (random/split-n rng 2)
         es (mapcat #(random-unit % max-coord)
                    (random/split-n r1 n-units))
-        n-tfs (count (filter #(= ::gene (::element-type %)) es))
+        n-tfs (count-tfs es)
         tf-ids (util/shuffle r1 (range n-tfs))]
     {::elements es
      ::input-tfs (take n-in tf-ids)
@@ -130,8 +145,7 @@
 
 ;;;  "cell" / usable form of grn
 
-(s/def ::tf-id nat-int?)
-(s/def ::promoter-id nat-int?)
+(s/def ::promoter-id ::tf-id)
 
 (s/def ::affinity (s/double-in :min 0.0 :max 10000 :NaN? false))
 (s/def ::influence (s/double-in :min (- 10000) :max 10000 :NaN? false))
@@ -153,14 +167,19 @@
 (s/def ::concs
   (s/every ::concentration :kind vector?))
 
+(declare grn->cell)
+
 (s/def ::cell
-  (s/keys :req [::unit-promoters
-                ::unit-tfs
-                ::influences
-                ::concs
-                ::input-tfs
-                ::output-tfs
-                ::parameters]))
+  (->
+   (s/keys :req [::unit-promoters
+                 ::unit-tfs
+                 ::influences
+                 ::concs
+                 ::input-tfs
+                 ::output-tfs
+                 ::parameters])
+   ;; this only generates fresh cells (zero concentrations)
+   (s/with-gen #(gen/fmap grn->cell (s/gen ::grn)))))
 
 (defn index-counts
   [counts init-offset]
@@ -466,8 +485,7 @@
   [grn prob rng]
   (let [ins (::input-tfs grn)
         outs (::output-tfs grn)
-        n-tfs (count (filter #(= ::gene (::element-type %))
-                             (::elements grn)))
+        n-tfs (count-tfs (::elements grn))
         outset (set (map #(mod % n-tfs) outs))
         output-tf? #(outset (mod % n-tfs))
         [r1 r2 r3 r4] (random/split-n rng 4)
@@ -480,7 +498,7 @@
                      ins
                      (random/split-n r1 (count ins))
                      (random/split-n r2 (count ins)))
-        inset (set (map #(mod % n-tfs) ins))
+        inset (set (map #(mod % n-tfs) new-ins))
         input-tf? #(inset (mod % n-tfs))
         new-outs (map (fn [id ra rb]
                         (if (< (random/rand-double ra) prob)
