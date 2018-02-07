@@ -33,11 +33,10 @@
             liquidfun$b2QueryCallback)))
 
 (def parameter-defaults
-  {:crossover-prob 0.5
-   :mutate-cppn-prob 0.2
+  {:crossover-prob 0.3
+   :mutate-cppn-prob 0.25
    :population-size 32
-   :max-selection-fraction 0.25
-   :generations 6})
+   :max-selection-fraction 0.25})
 
 (def sim-steps (* 60 5))
 
@@ -262,7 +261,7 @@
         :ret (s/cat :popn (s/every ::indiv)
                     :gparents (s/every-kv any? (s/every any?))))
 
-(defn generation
+(defn regeneration
   [popn beh-archive parameters seed rng gi]
   (let [[epopn ba] (eval-popn popn beh-archive seed)
         seln (selection epopn parameters)
@@ -280,12 +279,25 @@
     (read r)))
 
 (defn evolve-continue
-  [rng seed parameters popn beh-archive parents gi]
-  (if (< gi (:generations parameters))
+  [rng {:keys [beh-archive
+               popn
+               parents
+               seed
+               parameters
+               generation]
+        :as in-snap}
+   n-gens]
+  (if (< generation n-gens)
     (let [[rng rng*] (random/split rng)
-          [next-popn ba gparents] (generation popn beh-archive parameters
-                                              seed rng* gi)]
-      (println "gen" gi "behs:" (count ba))
+          [next-popn ba gparents] (regeneration popn beh-archive parameters
+                                                seed rng* generation)
+          snap {:beh-archive ba
+                :popn next-popn
+                :parents (merge-with concat parents gparents) ;; in case identical mutants
+                :seed seed
+                :parameters parameters
+                :generation (inc generation)}]
+      (println "gen" generation "behs:" (count ba))
       (println "grn sizes:"
                (->> popn (map :genome) (map :grn) (map #(count (::grn/elements %))) (sort >)))
       (println "cppn sizes:"
@@ -296,47 +308,41 @@
         (println (genome-hash-str (hash genome)) ":"
                  "parents" (map genome-hash-str (gparents (hash genome)))
                  "mutations" (:mutation-info indiv)))
-      (recur rng seed parameters next-popn ba
-             (merge-with concat parents gparents) ;; identical mutants might show up
-             (inc gi)))
+      (println "writing to file.")
+      (to-file (str "beh-archive-seed" seed "-gen" generation ".edn") snap)
+      (recur rng snap n-gens))
     ;; done
-    {:beh-archive beh-archive
-     :popn popn
-     :parents parents
-     :seed seed
-     :parameters parameters
-     :generation gi}))
+    in-snap))
 
 (defn evolve
-  [rng seed parameters grn-parameters]
+  [rng seed parameters grn-parameters n-gens]
   (let [n-popn (:population-size parameters)
         [rng rng*] (random/split rng)]
-    (evolve-continue rng seed parameters
-                     (map (fn [rng]
-                            {:genome (grncre/random-genome rng grn-parameters)})
-                          (random/split-n rng* n-popn))
-                     {} {} 0)))
+    (evolve-continue rng {:beh-archive {}
+                          :popn (map (fn [rng]
+                                       {:genome (grncre/random-genome rng grn-parameters)})
+                                     (random/split-n rng* n-popn))
+                          :parents {}
+                          :seed seed
+                          :parameters parameters
+                          :generation 0})))
 
 (defn run
-  [ng seed & args]
-  (let [ng (Long. (str ng))
+  [n-gens seed & args]
+  (let [n-gens (Long. (str n-gens))
         seed (Long. (str seed))
         rng (random/make-random seed)]
-    (->> (evolve rng seed (assoc parameter-defaults
-                                 :generations ng)
-                 grn/parameter-defaults)
+    (->> (evolve rng seed parameter-defaults grn/parameter-defaults n-gens)
          (to-file (str "beh-archive-seed" seed ".edn")))))
 
 (defn run-more
-  [file ng run-seed & args]
-  (let [ng (Long. (str ng))
+  [file n-gens run-seed & args]
+  (let [n-gens (Long. (str n-gens))
         run-seed (Long. (str run-seed))
-        {:keys [beh-archive popn parents seed generation]} (from-file file)
-        rng (random/make-random (Long. (str seed)))]
-    (->> (evolve-continue rng run-seed
-                          (assoc parameter-defaults
-                                 :generations (+ ng generation))
-                          popn beh-archive parents generation)
+        rng (random/make-random run-seed)
+        snap (from-file file)]
+    (->> (evolve-continue rng snap
+                          (+ n-gens (:generation snap)))
          (to-file (str file "-more-" run-seed)))))
 
 (comment

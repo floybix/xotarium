@@ -31,7 +31,7 @@
 (def cave-hh (* cave-height 0.5))
 (def pad 0.1)
 (def min-group-size 5)
-(def flow-force 0.005)
+(def flow-force 0.05)
 (def fix-radius (* p-radius 5))
 (def flow-types #{:spin-ccw :spin-cw :down :up :out})
 

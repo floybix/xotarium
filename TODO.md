@@ -1,6 +1,7 @@
-
 * s/pressure/depth/
 * s/air/water/
+
+
 
 
 * semi-persistence mechanism - a ratchet? - for e.g. responding to touch.
@@ -44,6 +45,13 @@
 
 # Evolution
 
+
+* measure = lowest point after 5 secs
+
+* cppn mutate only signals, not body plan?
+  - small bodies fall more slowly...
+
+
 * behavioural distance?
   - (for complex behaviours, many/all instances will be novel in some respect?)
   - OTOH: if we can group behaviours into qualitatively equivalent sets then ok.
@@ -69,6 +77,8 @@
 * transit serialisation
 
 
+* serialise RNG
+
 
 ## Behaviour
 
@@ -79,4 +89,3 @@
 * coevolution of carnivores and herbivores
   - consume cell by cell?
   - delay cell death to after sensing & messaging
-

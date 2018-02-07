@@ -51,6 +51,7 @@
   (empty? (graph/self-recursive-sets g)))
 
 (declare cppn-graph)
+(declare cppn-graph-no-finals)
 
 (s/def ::cppn
   (->
@@ -62,7 +63,9 @@
     #(not-any? (::outputs %) (::inputs %))
     #(not-any? (::inputs %) (::outputs %))
     #(acyclic? (cppn-graph %))
-    #(graph/dependency-list (cppn-graph %)))
+    #(acyclic? (cppn-graph-no-finals %))
+    #(graph/dependency-list (cppn-graph %))
+    #(graph/dependency-list (cppn-graph-no-finals %)))
    (s/with-gen #(gen/return example-cppn))))
 
 (defn remap
@@ -93,7 +96,7 @@
                           (remap keys (apply dissoc (:edges cppn) finals)))))
 
 (defn cppn-strata
-  "A list of sets. The first set contains the only inputs, the last only the
+  "A list of sets. The first set contains only the inputs, the last only the
   final outputs."
   [cppn]
   (concat (graph/dependency-list (cppn-graph-no-finals cppn))
@@ -153,6 +156,7 @@
   (let [[r1 r2 r3 r4 r5] (random/split-n rng 5)
         type (util/rand-nth r1 (seq auto-node-types))
         id (gen-node-id r5)
+        _ (assert (not (contains? (:edges cppn) id)) "gen-node-id collision!")
         [from1 w1] (util/rand-nth r2 (seq (get-in cppn [:edges before])))
         w2 (rand-init-weight r3)
         w3 (rand-init-weight r4)]
@@ -201,8 +205,8 @@
 (defn mutate-add-conn
   [cppn rng]
   (let [[r1 r2] (random/split-n rng 2)
-        from (util/rand-nth r1 (keys (:edges cppn)))]
-    (mutate-add-conn-to cppn from r2)))
+        to (util/rand-nth r1 (keys (:edges cppn)))]
+    (mutate-add-conn-to cppn to r2)))
 
 (s/fdef mutate-add-conn
         :args (s/cat :cppn ::cppn
