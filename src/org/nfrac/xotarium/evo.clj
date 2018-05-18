@@ -301,7 +301,7 @@
       (println "grn sizes:"
                (->> popn (map :genome) (map :grn) (map #(count (::grn/elements %))) (sort >)))
       (println "cppn sizes:"
-               (->> popn (map :genome) (map :cppn) (map #(count (cppn/edge-list %))) (sort >)))
+               (->> popn (map :genome) (map :signals-cppn) (map #(count (cppn/edge-list %))) (sort >)))
       (println "new gen:")
       (doseq [indiv (sort-by #(gparents (hash (:genome %))) next-popn)
               :let [genome (:genome indiv)]]
@@ -325,7 +325,8 @@
                           :parents {}
                           :seed seed
                           :parameters parameters
-                          :generation 0})))
+                          :generation 0}
+                     n-gens)))
 
 (defn run
   [n-gens seed & args]

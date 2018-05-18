@@ -39,22 +39,30 @@
 ;; if bone is positive (muscle is not), express bone.
 ;; otherwise (both non-positive), empty space.
 
-(def seed-cppn
+(def seed-structure-cppn
   {:inputs #{:bias :x :y :d}
-   :outputs #{:bone :muscle :angle :phase-off :factor-a :factor-b :factor-c}
-   :finals #{:bone :muscle}
+   :outputs #{:bone :muscle}
    :zerod #{}
    :nodes {:i0 :gaussian}
    :edges {:i0 {:d -1.0}
-           :factor-a {:x 1.0}
-           :factor-b {:y 1.0}
-           :factor-c {:d 0.5}
-           :phase-off {:x 2.0}
-           :angle {:factor-a 1.0}
            :bone {:i0 1.0
                   :bias -0.3}
-           :muscle {:factor-c -1.0
-                    :factor-a 1.0}}})
+           :muscle {:d -0.5
+                    :x 1.0}
+           }})
+
+(def seed-signals-cppn
+  {:inputs #{:bias :x :y :d :bone :muscle}
+   :outputs #{:angle :phase-off :factor-a :factor-b :factor-c}
+   :zerod #{}
+   :nodes {:j0 :gaussian}
+   :edges {:j0 {:muscle 1.0}
+           :angle {:x 1.0}
+           :phase-off {:x 2.0}
+           :factor-a {:x 1.0}
+           :factor-b {:y 1.0}
+           :factor-c {:j0 0.5}
+           }})
 
 (defn hex-neighbours
   "Returns hexagonal coordinates linked to their immediate neighbours.
@@ -342,22 +350,26 @@
 
 (defn abs [x] (if (neg? x) (- x) x))
 
-(defn morpho-cppn-fn
-  [cppn]
-  (let [f (cc/build-cppn-fn cppn)]
+(defn complete-cppn-fn
+  [structure-cppn signals-cppn]
+  (let [str-f (cc/build-cppn-fn structure-cppn)
+        sig-f (cc/build-cppn-fn signals-cppn)
+        ;; inputs to cppn-fn are in alphabetical order of symbol name
+        sig-inputs (sort (:inputs signals-cppn))]
     (fn [& args]
-      (-> (apply f args)
-          (update :phase-off * Math/PI)
-          (update :angle * Math/PI)
-          (update :factor-a abs)
-          (update :factor-b abs)
-          (update :factor-c abs)))))
+      (let [str-vals (apply str-f args)]
+        (-> (apply sig-f (map str-vals sig-inputs))
+            (update :phase-off * Math/PI)
+            (update :angle * Math/PI)
+            (update :factor-a abs)
+            (update :factor-b abs)
+            (update :factor-c abs))))))
 
 (defn make-creature
-  [^liquidfun$b2World world cppn]
+  [^liquidfun$b2World world structure-cppn signals-cppn]
   (let [ps ^liquidfun$b2ParticleSystem (first (lf/particle-sys-seq world))
         p-radius (.GetRadius ps)
-        cppn-fn (morpho-cppn-fn cppn)
+        cppn-fn (complete-cppn-fn structure-cppn signals-cppn)
         mdata (morpho-data cppn-fn p-radius [0 0] [creature-width creature-height])
         coords (->> mdata
                     (filter #(= :muscle (:tissue %)))
@@ -371,7 +383,8 @@
         (let [pgm (morpho-construct-particle-groups mdata ps)
               pp (morpho-particle-parameters mdata ps pgm)
               tri-p (morpho-triad-parameters ps pp)]
-          {:cppn cppn
+          {:structure-cppn structure-cppn
+           :signals-cppn signals-cppn
            :groups pgm
            :particle-params pp
            :triad-params tri-p}))
@@ -389,8 +402,9 @@
   (let [;world (cave/build-world)
         state (-> (cave/setup)
                   (cave/do-add-air))
-        cppn seed-cppn
-        creature (make-creature (:world state) cppn)]
+        structure-cppn seed-structure-cppn
+        signals-cppn seed-signals-cppn
+        creature (make-creature (:world state) structure-cppn signals-cppn)]
       (assoc state
              :creature creature)))
 
@@ -451,7 +465,8 @@
            (destroy-creature (:creature state))
            (assoc state :creature
                   (make-creature (:world state)
-                                 (cppn/mutate-with-perturbation seed-cppn {}))))
+                                 seed-structure-cppn
+                                 (cppn/mutate-with-perturbation seed-signals-cppn {}))))
       ;; otherwise pass on to testbed
       (bed/key-press state event))))
 

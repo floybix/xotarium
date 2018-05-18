@@ -72,8 +72,10 @@
         out-exprs (into {} (map (fn [nid]
                                   [nid (sym nid)])
                                 (sort (concat (:inputs cppn) (keys (:nodes cppn)) (:outputs cppn)))))
+        prims? (<= (count (:inputs cppn)) 4)
         in-syms (mapv (fn [k]
-                        (vary-meta (sym k) assoc :tag 'double))
+                        (cond-> (sym k)
+                          prims? (vary-meta assoc :tag 'double)))
                       (sort (:inputs cppn)))] ;(disj (:inputs cppn) :d)))]
         ;assigns (if (contains? (:inputs cppn) :d)
         ;          (conj assigns '[d (xy->d x y)])

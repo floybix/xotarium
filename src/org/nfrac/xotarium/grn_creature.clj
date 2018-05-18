@@ -70,8 +70,12 @@
   (some (fn [[i s]] (when (= s x) i))
         (map-indexed vector coll)))
 
+(s/def ::structure-cppn ::cppn/cppn)
+(s/def ::signals-cppn ::cppn/cppn)
+
 (s/def ::genome
-  (s/keys :req-un [::cppn/cppn
+  (s/keys :req-un [::structure-cppn
+                   ::signals-cppn
                    ::grn/grn]))
 
 (defn force-oscillation
@@ -103,24 +107,27 @@
 
 (defn random-genome
   [rng grn-parameters]
-  (let [cppn cre/seed-cppn
+  (let [structure-cppn cre/seed-structure-cppn
+        signals-cppn cre/seed-signals-cppn
         [r1 r2] (random/split-n rng 2)
         grn* (grn/random-grn (count beh-inputs) (count beh-outputs) r1
                              grn-parameters)
         grn (force-oscillation grn* r2)]
-    {:cppn cppn
+    {:structure-cppn structure-cppn
+     :signals-cppn signals-cppn
      :grn grn}))
 
 (defn mutate
   [genome rng mutate-cppn-prob]
-  (let [{:keys [grn cppn]} genome
+  (let [{:keys [grn signals-cppn]} genome
+        cppn signals-cppn
         [r1 r2 r3] (random/split-n rng 3)
         ncppn (if (< (random/rand-double r1) mutate-cppn-prob)
                 (cppn/mutate-with-perturbation cppn r2 {})
                 cppn)
         [ngrn mut-info] (grn/mutate grn r3)]
     [(assoc genome
-            :cppn ncppn
+            :signals-cppn ncppn
             :grn ngrn)
      mut-info]))
 
@@ -155,7 +162,8 @@
 
 (defn come-alive
   [world genome]
-  (when-let [creature-body (cre/make-creature world (:cppn genome))]
+  (when-let [creature-body (cre/make-creature world (:structure-cppn genome)
+                                              (:signals-cppn genome))]
     (let [grn (:grn genome)
           tri-p (:triad-params creature-body)
           tri-nbs (triad-neighbours (keys tri-p))

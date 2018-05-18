@@ -8,7 +8,7 @@
             [clojure.test.check.random :as random]))
 
 (def parameter-defaults
-  {:init-max-coord 10.0
+  {:init-max-coord 20.0
    :max-affinity 10.0
    :affinity-eps 0.05
    :dt 0.1
