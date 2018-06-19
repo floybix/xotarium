@@ -1,0 +1,16 @@
+{:deps
+ {org.clojure/clojure {:mvn/version "1.9.0"}
+  org.clojure/core.async {:mvn/version "0.3.442"}
+  org.clojure/test.check {:mvn/version "0.9.0"}
+  org.nfrac/liquidfun-clj {:git/url "https://github.com/floybix/cljbox2d"
+                           :deps/root "liquidfun-clj"
+                           :sha "8822095b6df059b2bbbba22691a952374ea26ebb"}
+  org.nfrac/liquidfun-clj.testbed {:git/url "https://github.com/floybix/cljbox2d"
+                                   :deps/root "liquidfun-clj.testbed"
+                                   :sha "8822095b6df059b2bbbba22691a952374ea26ebb"}
+  org.nfrac/cppn {:git/url "https://github.com/floybix/cppn"
+                  :sha "4617a417dd4dd7da4220537bec50ea1199188346"}
+  }
+
+ :aliases
+ {:test {:extra-paths ["test"]}}}
