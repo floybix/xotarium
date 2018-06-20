@@ -1,7 +1,7 @@
 (ns org.nfrac.xotarium.util
   (:require [clojure.test.check.random :as random]
-            [clojure.spec :as s]
-            [#?(:clj clojure.spec.gen :cljs clojure.spec.impl.gen) :as gen]
+            [clojure.spec.alpha :as s]
+            [clojure.spec.gen.alpha :as gen]
             [clojure.set :as set])
   (:refer-clojure :exclude [rand rand-int rand-nth shuffle]))
 

@@ -1,21 +1,19 @@
 (ns org.nfrac.xotarium.evo
   (:require [org.nfrac.xotarium.grn-creature :as grncre]
             [org.nfrac.xotarium.creature :as cre]
-            [org.nfrac.xotarium.cppn :as cppn]
-            [org.nfrac.xotarium.cppn-compile :as cc]
             [org.nfrac.xotarium.grn.greans :as grn]
             [org.nfrac.xotarium.plant-cave :as cave]
+            [org.nfrac.cppn :as cppn]
             [org.nfrac.liquidfun.testbed :as bed]
             [org.nfrac.liquidfun.core :as lf :refer [body! joint!
                                                      particle-system!]]
             [org.nfrac.liquidfun.vec2d :as v2d]
             [org.nfrac.xotarium.util :as util]
-            [org.nfrac.xotarium.util.algo-graph :as graph]
             [quil.core :as quil :include-macros true]
             [quil.middleware]
             [clojure.pprint]
             [clojure.java.io :as io]
-            [clojure.spec :as s]
+            [clojure.spec.alpha :as s]
             [clojure.test.check.random :as random])
   (:import (org.bytedeco.javacpp
             liquidfun$b2ContactListener

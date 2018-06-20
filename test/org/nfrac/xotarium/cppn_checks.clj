@@ -1,11 +1,10 @@
 (ns org.nfrac.xotarium.cppn-checks
-  (:require [org.nfrac.xotarium.cppn :as cppn]
-            [org.nfrac.xotarium.util :as util]
-            [org.nfrac.xotarium.creature :as cre]
-            [clojure.spec :as s]
-            [clojure.spec.gen :as gen]
+  (:require [org.nfrac.cppn :as cppn]
+            [org.nfrac.cppn.util :as util]
+            [clojure.spec.alpha :as s]
+            [clojure.spec.gen.alpha :as gen]
             [clojure.test.check.random :as random]
-            [clojure.spec.test :as stest]
+            [clojure.spec.test.alpha :as stest]
             [clojure.test.check.clojure-test :as ctcc]
             [clojure.test :as t
              :refer (is deftest testing run-tests)]))
@@ -15,7 +14,7 @@
 
 (def instr-syms
   (concat
-   (stest/enumerate-namespace 'org.nfrac.xotarium.cppn)
+   (stest/enumerate-namespace 'org.nfrac.cppn)
    ))
 
 (alias 'stc 'clojure.spec.test.check)

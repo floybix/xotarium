@@ -1,12 +1,11 @@
 (ns org.nfrac.xotarium.grn.viz
   (:require [org.nfrac.xotarium.grn.greans :as grn]
             [org.nfrac.xotarium.util :as util]
-            [org.nfrac.xotarium.util.algo-graph :as graph]
             [org.nfrac.liquidfun.vec2d :as v2d]
             [quil.core :as quil]
             [clojure.core.async :as async]
             [clojure.pprint]
-            [clojure.spec :as s]
+            [clojure.spec.alpha :as s]
             [clojure.test.check.random :as random]))
 
 (defn random-color

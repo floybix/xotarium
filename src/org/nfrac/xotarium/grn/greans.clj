@@ -2,8 +2,8 @@
   "An implementation of GReaNs (Gene Regulatory evolving artificial Networks)
   similar to that described in the paper by Michal Joachimczak and Borys Wróbel:
   Co-evolution of morphology and control of soft-bodied multicellular animats."
-  (:require [clojure.spec :as s]
-            [clojure.spec.gen :as gen]
+  (:require [clojure.spec.alpha :as s]
+            [clojure.spec.gen.alpha :as gen]
             [org.nfrac.xotarium.util :as util]
             [clojure.test.check.random :as random]))
 

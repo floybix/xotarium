@@ -1,16 +1,17 @@
 (ns org.nfrac.xotarium.creature
-  (:require [org.nfrac.xotarium.cppn :as cppn]
-            [org.nfrac.xotarium.cppn-compile :as cc]
-            [org.nfrac.xotarium.plant-cave :as cave]
+  (:require [org.nfrac.xotarium.plant-cave :as cave]
+            [org.nfrac.cppn :as cppn]
+            [org.nfrac.cppn.compile :as cc]
             [org.nfrac.liquidfun.testbed :as bed]
             [org.nfrac.liquidfun.core :as lf :refer [body! joint!
                                                      particle-system!]]
             [org.nfrac.liquidfun.vec2d :as v2d]
-            [org.nfrac.xotarium.util.algo-graph :as graph]
+            [loom.graph :as graph]
+            [loom.alg :as alg]
             [quil.core :as quil :include-macros true]
             [quil.middleware]
             [clojure.pprint]
-            [clojure.spec :as s]
+            [clojure.spec.alpha :as s]
             [clojure.test.check.random :as random])
   (:import (org.bytedeco.javacpp
             liquidfun$b2ContactListener
@@ -118,7 +119,7 @@
         bone? (fn [id]
                 (and (expressed? id) (not (muscle? id))))
         bone-g (filter-graph hex-g bone? #(and (bone? %1) (bone? %2)))
-        bones (graph/scc (graph/directed-graph (keys bone-g) bone-g))
+        bones (map set (alg/scc (graph/digraph bone-g)))
         muscle-ids (filter muscle? (keys pheno))
         muscle-inert (set (remove #(pos? (:bone (pheno %))) muscle-ids))
         muscle-reactive (set (remove muscle-inert muscle-ids))]

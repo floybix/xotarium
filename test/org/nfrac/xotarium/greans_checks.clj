@@ -1,6 +1,6 @@
 (ns org.nfrac.xotarium.greans-checks
   (:require [org.nfrac.xotarium.grn.greans :as grn]
-            [clojure.spec.test :as stest]
+            [clojure.spec.test.alpha :as stest]
             [clojure.test.check.clojure-test :as ctcc]
             [clojure.test :as t
              :refer (is deftest testing run-tests)]))

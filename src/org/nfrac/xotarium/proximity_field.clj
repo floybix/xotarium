@@ -3,11 +3,10 @@
             [org.nfrac.liquidfun.core :as lf :refer [body! joint!
                                                      particle-system!]]
             [org.nfrac.liquidfun.vec2d :as v2d]
-            [org.nfrac.xotarium.util.algo-graph :as graph]
             [org.nfrac.xotarium.util :as util]
             [quil.core :as quil :include-macros true]
             [quil.middleware]
-            [clojure.spec :as s]
+            [clojure.spec.alpha :as s]
             [clojure.test.check.random :as random])
   (:import (org.bytedeco.javacpp
             liquidfun$b2ContactListener

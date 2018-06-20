@@ -4,12 +4,13 @@
             [org.nfrac.liquidfun.core :as lf :refer [body! joint!
                                                      particle-system!]]
             [org.nfrac.liquidfun.vec2d :as v2d]
-            [org.nfrac.xotarium.util.algo-graph :as graph]
             [org.nfrac.xotarium.util :as util]
             [org.nfrac.xotarium.proximity-field :as proxf]
+            [loom.graph :as graph]
+            [loom.alg :as alg]
             [quil.core :as quil :include-macros true]
             [quil.middleware]
-            [clojure.spec :as s]
+            [clojure.spec.alpha :as s]
             [clojure.test.check.random :as random])
   (:import (org.bytedeco.javacpp
             liquidfun$b2ContactListener
@@ -378,8 +379,8 @@
                      (update ic into [ia ib]))
             (inc j)))
         ;; done
-        (let [g (graph/directed-graph (keys ed) ed)
-              cc (graph/scc g)]
+        (let [g (graph/digraph ed)
+              cc (alg/scc g)]
           (doseq [is cc]
             (when (not-any? (fn [i]
                               (let [flag (.GetParticleFlags ps i)]
